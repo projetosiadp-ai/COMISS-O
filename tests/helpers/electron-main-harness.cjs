@@ -44,7 +44,12 @@ function loadCurrentMain({ userDataPath, autoReady = false } = {}) {
   };
 
   const mainPath = path.resolve(__dirname, '../../main.js');
-  delete require.cache[mainPath];
+  const modularMainRoot = path.resolve(__dirname, '../../src/main') + path.sep;
+  for (const cachedPath of Object.keys(require.cache)) {
+    if (cachedPath === mainPath || cachedPath.startsWith(modularMainRoot)) {
+      delete require.cache[cachedPath];
+    }
+  }
   try {
     require(mainPath);
   } finally {

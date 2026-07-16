@@ -51,9 +51,9 @@
       "dist/**/*",
       "main.js",
       "preload.js",
-      "src/main/core/**/*",
+      "src/main/**/*",
       "assets/**/*",
-      "corretoras.json",
+      "config/**/*",
       "package.json"
     ]
   }
