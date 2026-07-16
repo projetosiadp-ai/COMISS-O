@@ -3,6 +3,17 @@ const path = require('path');
 const fs = require('fs');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
+const {
+  normalizeBaseText,
+  safeFileName,
+  decodeHtml,
+  getText,
+  parseVendedorCorretora,
+  parseBrazilNumber,
+  parseBrazilCurrency,
+  formatNumberBR,
+  formatBRL
+} = require('./src/main/core/text.cjs');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -138,16 +149,6 @@ ipcMain.handle('select-general-files', async () => {
 });
 
 
-function normalizeBaseText(value) {
-  return String(value || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .toUpperCase()
-    .replace(/&/g, ' E ')
-    .replace(/[^A-Z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
 function loadCorretorasConfig() {
   const configPath = path.join(__dirname, 'corretoras.json');
   const defaultConfig = {
@@ -206,91 +207,6 @@ function normalizarCorretoraParaGrupo(nome) {
   }
 
   return original;
-}
-
-function safeFileName(name) {
-  return String(name || 'SEM_NOME')
-    .replace(/[\\/:*?"<>|]/g, '-')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function decodeHtml(value) {
-  return String(value || '')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(/<[^>]*>/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function getText(value) {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') {
-    if (value.text) return String(value.text);
-    if (value.richText) return value.richText.map(x => x.text).join('');
-    if (value.result !== undefined) return String(value.result);
-    if (value.formula !== undefined && value.result !== undefined) return String(value.result);
-  }
-  return String(value);
-}
-
-function parseVendedorCorretora(rawTitle, filePath = '') {
-  let text = decodeHtml(getText(rawTitle))
-    .replace(/\u00a0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  // Normaliza traços diferentes e espaços grudados.
-  text = text.replace(/[–—]/g, '-').replace(/\s*-\s*/g, ' - ');
-
-  let vendedor = '';
-  let corretora = '';
-  let isPrincipalCorretora = false;
-
-  const parts = text.split(' - ').map(p => p.trim()).filter(Boolean);
-
-  // Caso 1: padrão VENDEDOR - CORRETORA
-  if (parts.length >= 2) {
-    vendedor = parts[0];
-    corretora = parts.slice(1).join(' - ');
-  }
-
-  // Caso 2: arquivo da própria corretora, sem vendedor.
-  // Exemplo: "AS PRIME" ou "NEWPLANECOM ADMINISTRADORA..."
-  // Aqui a linha de cima é a corretora, não um erro.
-  if (!corretora && text && !text.match(/^Per[ií]odo|^Lote|^Total|^Comissao/i)) {
-    corretora = text;
-    vendedor = 'Corretora principal';
-    isPrincipalCorretora = true;
-  }
-
-  // Plano B: tenta pelo nome do arquivo somente se ainda não achou nada útil.
-  if ((!corretora || corretora === 'Corretora não identificada') && filePath) {
-    const base = path.basename(filePath, path.extname(filePath))
-      .replace(/[_]+/g, ' ')
-      .replace(/[–—]/g, '-')
-      .replace(/\s*-\s*/g, ' - ')
-      .trim();
-    const fileParts = base.split(' - ').map(p => p.trim()).filter(Boolean);
-    if (fileParts.length >= 2) {
-      vendedor = vendedor || fileParts[0];
-      corretora = fileParts.slice(1).join(' - ');
-      text = text || base;
-      isPrincipalCorretora = false;
-    }
-  }
-
-  return {
-    vendedor: vendedor || 'Corretora principal',
-    corretora: corretora || 'Corretora não identificada',
-    titulo: text || 'Identificação não encontrada',
-    isPrincipalCorretora
-  };
 }
 
 function copyCell(sourceCell, targetCell) {
@@ -382,29 +298,6 @@ function htmlToRows(html, filePath = '') {
 
 function normalizeHeaderName(value) {
   return normalizeBaseText(getText(value));
-}
-
-function parseBrazilNumber(text) {
-  let s = String(text || '').trim();
-  if (!s) return null;
-  s = s.replace(/R\$/gi, '').replace(/\s+/g, '');
-
-  const isPercent = s.endsWith('%');
-  if (isPercent) s = s.slice(0, -1);
-
-  // Aceita números no padrão brasileiro: 1.234,56 / 39,90 / 1957049
-  if (!/^-?\d{1,3}(\.\d{3})*(,\d+)?$/.test(s) && !/^-?\d+(,\d+)?$/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) {
-    return null;
-  }
-
-  // Se tiver vírgula, considera vírgula decimal e ponto como milhar.
-  if (s.includes(',')) {
-    s = s.replace(/\./g, '').replace(',', '.');
-  }
-
-  const n = Number(s);
-  if (!Number.isFinite(n)) return null;
-  return isPercent ? n / 100 : n;
 }
 
 function shouldConvertColumn(header) {
@@ -622,13 +515,6 @@ function getItemCommissionTotal(item) {
   return result.found ? result.total : 0;
 }
 
-function formatNumberBR(value) {
-  return Number(value || 0).toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-}
-
 function updateFirstCommissionTotal(ws, consolidatedTotal) {
   const lastRow = getLastUsedRow(ws);
   const lastCol = getLastUsedCol(ws);
@@ -752,21 +638,6 @@ function extractCorretoraFromTitleForSummary(title, filePath = '') {
   return group && group !== 'Corretora não identificada'
     ? group
     : safeFileName(path.basename(filePath, path.extname(filePath))).replace(/-/g, ' ');
-}
-
-function parseBrazilCurrency(text) {
-  const raw = String(text || '').replace(/R\$/gi, '').trim();
-  const matches = raw.match(/-?\d{1,3}(?:\.\d{3})*,\d{1,2}|-?\d+,\d{1,2}|-?\d+(?:\.\d+)?/g);
-  if (!matches || !matches.length) return null;
-  const s0 = matches[matches.length - 1];
-  let s = s0.replace(/\s/g, '');
-  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatBRL(value) {
-  return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function findTotalInRows(rows) {
@@ -1563,4 +1434,3 @@ ipcMain.handle('save-corretoras-config', async (_, newConfig) => {
   CORRETORAS_CONFIG = newConfig;
   return true;
 });
-
