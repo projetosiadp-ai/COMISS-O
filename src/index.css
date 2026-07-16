@@ -908,3 +908,63 @@ input:focus { border-color: #0d79e7; box-shadow: 0 0 0 3px rgba(13,121,231,.11);
   background: #edf6ff !important;
   transform: scale(1.01);
 }
+
+/* Revisão local obrigatória de duplicidades */
+.duplicate-panel .selection-head h2,
+.duplicate-panel .secondary,
+.duplicate-error,
+.duplicate-clear,
+.duplicate-confirmation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.duplicate-review { display: grid; gap: 12px; margin-top: 16px; }
+.duplicate-metrics { display: flex; flex-wrap: wrap; gap: 10px; }
+.duplicate-metrics span {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 7px 11px;
+}
+.duplicate-metrics b { color: var(--text); }
+.duplicate-metrics .duplicate-danger { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+.duplicate-metrics .duplicate-warning { background: #fffbeb; border-color: #fde68a; color: #a16207; }
+.duplicate-error { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 8px; color: #9f1239; padding: 10px 12px; }
+.duplicate-group { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.duplicate-group.confirmed { border-left: 4px solid #e11d48; }
+.duplicate-group.possible { border-left: 4px solid #d97706; }
+.duplicate-group summary {
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  background: var(--panel);
+}
+.duplicate-group summary > span:first-child { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.duplicate-group summary > span:last-child { color: var(--muted); font-size: 12px; }
+.duplicate-differences { color: #92400e; font-size: 12px; margin: 12px 14px 0; }
+.duplicate-table-wrap { overflow-x: auto; padding: 12px 14px 14px; }
+.duplicate-table-wrap table { min-width: 680px; width: 100%; }
+.duplicate-table-wrap th, .duplicate-table-wrap td { font-size: 12px; padding: 8px; text-align: left; }
+.duplicate-confirmation {
+  align-items: flex-start;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  color: #7c2d12;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 13px 14px;
+}
+.duplicate-confirmation input { margin-top: 3px; }
+.duplicate-confirmation svg { flex: 0 0 auto; }
+.duplicate-clear { background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; color: #047857; padding: 10px 12px; }
+.dark .duplicate-metrics .duplicate-danger,
+.dark .duplicate-error { background: rgba(225,29,72,.12); }
+.dark .duplicate-metrics .duplicate-warning,
+.dark .duplicate-confirmation { background: rgba(217,119,6,.12); }
+.dark .duplicate-clear { background: rgba(16,185,129,.12); }

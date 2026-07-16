@@ -14,6 +14,11 @@ const {
   formatNumberBR,
   formatBRL
 } = require('./src/main/core/text.cjs');
+const {
+  analyzeDuplicateRecords,
+  extractHtmlCommissionRecords,
+  recordsFromRows
+} = require('./src/main/core/duplicate-analysis.cjs');
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -419,6 +424,41 @@ async function readInput(filePath) {
   // Arquivos .xls gerados pelo sistema são HTML disfarçado de Excel.
   return readHtmlInput(filePath);
 }
+
+async function readDuplicateRecords(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  const buffer = fs.readFileSync(filePath);
+  const firstBytes = buffer.slice(0, 20).toString('latin1').toLowerCase();
+
+  if (ext !== '.xlsx' && !firstBytes.startsWith('pk')) {
+    return extractHtmlCommissionRecords(buffer.toString('latin1'), filePath);
+  }
+
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  return workbook.worksheets.flatMap(sheet => recordsFromRows(getRowsFromXlsxSheet(sheet), {
+    filePath,
+    table: sheet.name
+  }));
+}
+
+ipcMain.handle('analyze-duplicates', async (_, { files } = {}) => {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('Selecione ao menos um arquivo para analisar duplicidades.');
+  }
+
+  const records = [];
+  const errors = [];
+  for (const filePath of files) {
+    try {
+      records.push(...await readDuplicateRecords(filePath));
+    } catch (error) {
+      errors.push({ fileName: path.basename(String(filePath || '')), message: error.message });
+    }
+  }
+
+  return { ...analyzeDuplicateRecords(records), errors };
+});
 
 function getLastUsedRow(sheet) {
   let last = 1;

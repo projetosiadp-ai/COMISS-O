@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Upload, FileSpreadsheet, FileCode, File, X, Trash2, 
   Settings, FolderOpen, Play, CheckCircle, AlertCircle, RefreshCw,
-  Users, DollarSign
+  Users, DollarSign, Search, ShieldAlert
 } from 'lucide-react';
 import { formatBRL } from '../App';
 
@@ -47,6 +47,14 @@ export default function NewReport({ refreshHistory, addLog }) {
   });
   
   const [result, setResult] = useState(null);
+  const [analyzingDuplicates, setAnalyzingDuplicates] = useState(false);
+  const [duplicateAnalysis, setDuplicateAnalysis] = useState(null);
+  const [duplicateReviewAccepted, setDuplicateReviewAccepted] = useState(false);
+
+  useEffect(() => {
+    setDuplicateAnalysis(null);
+    setDuplicateReviewAccepted(false);
+  }, [selectedFiles]);
 
   useEffect(() => {
     if (window.api && window.api.onProgress) {
@@ -189,6 +197,51 @@ export default function NewReport({ refreshHistory, addLog }) {
       .replace(/^./, c => c.toUpperCase());
   };
 
+  const analyzeSelectedBatch = async () => {
+    if (!window.api?.analyzeDuplicates) {
+      throw new Error('A análise local de duplicidades não está disponível.');
+    }
+
+    setAnalyzingDuplicates(true);
+    setStatus({ type: 'loading', message: 'Analisando o lote inteiro localmente...' });
+    try {
+      const analysis = await window.api.analyzeDuplicates({
+        files: selectedFiles.map(file => file.path)
+      });
+      setDuplicateAnalysis(analysis);
+
+      if (analysis.errors?.length) {
+        throw new Error(`Não foi possível verificar ${analysis.errors.length} arquivo(s). Corrija os arquivos indicados antes de processar.`);
+      }
+
+      return analysis;
+    } finally {
+      setAnalyzingDuplicates(false);
+    }
+  };
+
+  const handleAnalyzeDuplicates = async () => {
+    if (!selectedFiles.length) {
+      setStatus({ type: 'error', message: 'Selecione os arquivos antes de analisar o lote.' });
+      return;
+    }
+
+    try {
+      const analysis = await analyzeSelectedBatch();
+      const findings = analysis.confirmed.length + analysis.possible.length;
+      setStatus({
+        type: findings ? 'error' : 'success',
+        message: findings
+          ? 'Foram encontradas duplicidades. Revise os grupos abaixo antes de processar.'
+          : 'Análise concluída: nenhuma duplicidade identificada no lote.'
+      });
+      log(findings ? 'error' : 'success', `Análise local concluída: ${analysis.totalRecords} registro(s), ${analysis.confirmed.length} grupo(s) confirmado(s) e ${analysis.possible.length} possível(is).`);
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+      log('error', `Falha na análise local: ${error.message}`);
+    }
+  };
+
   const handleGenerate = async () => {
     if (!reportMonth) {
       setStatus({ type: 'error', message: 'Informe o mês de referência do relatório.' });
@@ -203,6 +256,24 @@ export default function NewReport({ refreshHistory, addLog }) {
     if (!outputFolder) {
       setStatus({ type: 'error', message: 'Escolha a pasta onde os relatórios serão salvos.' });
       log('error', 'Tentativa de geração sem pasta de destino selecionada.');
+      return;
+    }
+
+    let analysis;
+    try {
+      analysis = await analyzeSelectedBatch();
+    } catch (error) {
+      setStatus({ type: 'error', message: error.message });
+      log('error', `Processamento bloqueado: ${error.message}`);
+      return;
+    }
+
+    if (analysis.requiresConfirmation && !duplicateReviewAccepted) {
+      setStatus({
+        type: 'error',
+        message: 'Processamento pausado. Revise as duplicidades e marque a confirmação obrigatória para continuar.'
+      });
+      log('error', 'Processamento pausado para revisão obrigatória das duplicidades encontradas.');
       return;
     }
 
@@ -377,6 +448,89 @@ export default function NewReport({ refreshHistory, addLog }) {
         </div>
       </section>
 
+      <section className="panel compact-panel duplicate-panel">
+        <div className="selection-head">
+          <div>
+            <h2><Search size={17} /> Análise local de duplicidades</h2>
+            <p className="muted">O lote inteiro é comparado nesta máquina. CPF, cliente e contrato não são enviados para a nuvem.</p>
+          </div>
+          <button
+            className="secondary"
+            onClick={handleAnalyzeDuplicates}
+            disabled={!selectedFiles.length || analyzingDuplicates || processing}
+          >
+            <Search size={14} /> {analyzingDuplicates ? 'Analisando...' : 'Analisar lote'}
+          </button>
+        </div>
+
+        {duplicateAnalysis && (
+          <div className="duplicate-review">
+            <div className="duplicate-metrics">
+              <span><b>{duplicateAnalysis.totalRecords}</b> registros verificados</span>
+              <span className={duplicateAnalysis.confirmed.length ? 'duplicate-danger' : ''}>
+                <b>{duplicateAnalysis.confirmed.length}</b> grupos confirmados
+              </span>
+              <span className={duplicateAnalysis.possible.length ? 'duplicate-warning' : ''}>
+                <b>{duplicateAnalysis.possible.length}</b> grupos possíveis
+              </span>
+            </div>
+
+            {duplicateAnalysis.errors?.map((error, index) => (
+              <div className="duplicate-error" key={`${error.fileName}-${index}`}>
+                <AlertCircle size={15} /> <b>{error.fileName}</b>: {error.message}
+              </div>
+            ))}
+
+            {[...duplicateAnalysis.confirmed, ...duplicateAnalysis.possible].map((group, index) => (
+              <details className={`duplicate-group ${group.kind}`} key={`${group.kind}-${group.cpf}-${group.contrato}-${index}`}>
+                <summary>
+                  <span>{group.kind === 'confirmed' ? 'Duplicidade confirmada' : 'Possível duplicidade'}</span>
+                  <b>{group.cliente || 'Cliente não identificado'}</b>
+                  <span>CPF {group.cpf} · Contrato {group.contrato} · {group.records.length} ocorrências</span>
+                </summary>
+                {group.differences?.length > 0 && (
+                  <p className="duplicate-differences">Diferenças encontradas: {group.differences.join(', ')}.</p>
+                )}
+                <div className="duplicate-table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>Arquivo</th><th>Tabela/linha</th><th>Parcela</th><th>Pagamento</th><th>Comissão</th></tr>
+                    </thead>
+                    <tbody>
+                      {group.records.map((record, recordIndex) => (
+                        <tr key={`${record.fileName}-${record.rowNumber}-${recordIndex}`}>
+                          <td title={record.filePath}>{record.fileName}</td>
+                          <td>{record.table} · {record.rowNumber}</td>
+                          <td>{record.parcela || '—'}</td>
+                          <td>{record.pagamento || '—'}</td>
+                          <td>{record.comissao || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            ))}
+
+            {duplicateAnalysis.requiresConfirmation && !duplicateAnalysis.errors?.length && (
+              <label className="duplicate-confirmation">
+                <input
+                  type="checkbox"
+                  checked={duplicateReviewAccepted}
+                  onChange={(event) => setDuplicateReviewAccepted(event.target.checked)}
+                />
+                <ShieldAlert size={18} />
+                <span>Revisei as ocorrências acima e confirmo que o processamento deve continuar sem excluir nem alterar nenhuma linha.</span>
+              </label>
+            )}
+
+            {!duplicateAnalysis.requiresConfirmation && !duplicateAnalysis.errors?.length && (
+              <div className="duplicate-clear"><CheckCircle size={16} /> Nenhuma duplicidade identificada pelos critérios atuais.</div>
+            )}
+          </div>
+        )}
+      </section>
+
       <section className="panel compact-panel">
         <div className="output-row">
           <div className="field-grow">
@@ -431,7 +585,7 @@ export default function NewReport({ refreshHistory, addLog }) {
           id="btnGenerate" 
           className="primary large" 
           onClick={handleGenerate}
-          disabled={processing}
+          disabled={processing || analyzingDuplicates}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
         >
           <Play size={16} /> Processar arquivos
