@@ -7,7 +7,10 @@
     "dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && cross-env NODE_ENV=development electron .\"",
     "build:frontend": "vite build",
     "build:app": "npm run build:frontend && electron-builder --win portable",
-    "start": "cross-env NODE_ENV=production electron ."
+    "start": "cross-env NODE_ENV=production electron .",
+    "test": "node \"%INIT_CWD%\\scripts\\run-tests.cjs\"",
+    "test:ui": "node \"%INIT_CWD%\\scripts\\run-tests.cjs\"",
+    "test:all": "npm test && npm run test:ui"
   },
   "dependencies": {
     "@fontsource/inter": "^5.0.0",
