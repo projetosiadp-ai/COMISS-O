@@ -16,9 +16,7 @@ const {
   formatBRL
 } = require('./core/text.cjs');
 const {
-  analyzeDuplicateRecords,
-  extractHtmlCommissionRecords,
-  recordsFromRows
+  analyzeDuplicateRecords
 } = require('./core/duplicate-analysis.cjs');
 const { assertLocalPath, assertInputFiles } = require('./core/ipc-validation.cjs');
 const {
@@ -43,6 +41,13 @@ const { createWindowFactory } = require('./app/create-window.cjs');
 const { registerSystemIpc } = require('./ipc/register-system-ipc.cjs');
 const { registerHistoryIpc } = require('./ipc/register-history-ipc.cjs');
 const { registerDuplicatesIpc } = require('./ipc/register-duplicates-ipc.cjs');
+const {
+  readInput,
+  readDuplicateRecords,
+  getLastUsedRow,
+  getLastUsedCol,
+  getRowsFromXlsxSheet
+} = require('./reports/input-reader.cjs');
 
 const APP_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -141,83 +146,6 @@ function copyCell(sourceCell, targetCell) {
   if (sourceCell.fill) targetCell.fill = JSON.parse(JSON.stringify(sourceCell.fill));
   if (sourceCell.border) targetCell.border = JSON.parse(JSON.stringify(sourceCell.border));
 }
-
-async function readXlsxInput(filePath) {
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
-  const sheet = workbook.worksheets[0];
-  const info = parseVendedorCorretora(sheet.getCell('A1').value, filePath);
-  return { filePath, type: 'xlsx', workbook, sheet, info };
-}
-
-function extractHtmlTitle(clean) {
-  // O sistema coloca a identificação logo no topo, antes de "Período".
-  // Pode vir como:
-  //   VENDEDOR - CORRETORA
-  // ou apenas:
-  //   CORRETORA
-  const withoutStyle = clean.replace(/<style[\s\S]*?<\/style>/gi, ' ');
-
-  // 1) Pega o primeiro <b> antes do Período. Isso resolve arquivos sem vendedor.
-  const beforePeriodHtml = withoutStyle.split(/<\s*b[^>]*>\s*Per[ií]odo\s*:/i)[0] || withoutStyle;
-  const boldMatches = [...beforePeriodHtml.matchAll(/<b[^>]*>\s*([\s\S]*?)\s*<\/b>/gi)]
-    .map(m => decodeHtml(m[1]))
-    .filter(x => x && !/^Per[ií]odo|^Lote|^Total|^Comissao/i.test(x));
-  if (boldMatches.length) return boldMatches[0];
-
-  // 2) Se por algum motivo não veio em <b>, pega a primeira linha antes do Período.
-  const plain = decodeHtml(withoutStyle.replace(/<br\s*\/?\s*>/gi, '\n').replace(/<[^>]*>/g, ' '));
-  const beforePeriod = plain.split(/Per[ií]odo/i)[0] || plain;
-  const line = beforePeriod.split(/\n|\s{3,}/).map(x => x.trim()).find(x => x && !/^style/i.test(x));
-  if (line) return line;
-
-  return '';
-}
-
-function htmlToRows(html, filePath = '') {
-  const clean = html.replace(/\r?\n/g, ' ');
-
-  const titulo = extractHtmlTitle(clean) || path.basename(filePath, path.extname(filePath));
-
-  const periodoMatch = clean.match(/Per[^:<]*odo:\s*<\/b>\s*([^<]*)/i);
-  const periodo = decodeHtml(periodoMatch ? periodoMatch[1] : '');
-
-  const loteMatch = clean.match(/Lote:\s*<\/b>\s*([^<]*)\s*-\s*<b[^>]*>\s*([^<]*)/i);
-  const lote = loteMatch ? `${decodeHtml(loteMatch[1])} - ${decodeHtml(loteMatch[2])}` : '';
-
-  const totalMatch = clean.match(/Total de Comiss[^:]*a pagar:\s*<b[^>]*>\s*([^<]*)/i);
-  const total = decodeHtml(totalMatch ? totalMatch[1] : '');
-
-  const rows = [];
-  rows[0] = [titulo];
-  rows[1] = [`Período: ${periodo}`];
-  rows[2] = [`Lote: ${lote}`];
-  rows[3] = [];
-  rows[4] = [`Total de Comissões a pagar: ${total}`];
-  rows[5] = [];
-  rows[6] = [];
-  rows[7] = ['Comissao_normal'];
-
-  const tableMatch = clean.match(/<table[\s\S]*?<\/table>/i);
-  if (!tableMatch) return rows;
-
-  const table = tableMatch[0];
-  const trRegex = /<tr[\s\S]*?<\/tr>/gi;
-  const tdRegex = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
-  let trMatch;
-  while ((trMatch = trRegex.exec(table)) !== null) {
-    const tr = trMatch[0];
-    const row = [];
-    let tdMatch;
-    while ((tdMatch = tdRegex.exec(tr)) !== null) {
-      row.push(decodeHtml(tdMatch[1]));
-    }
-    if (row.length > 0) rows.push(row);
-  }
-
-  return rows;
-}
-
 
 function normalizeHeaderName(value) {
   return normalizeBaseText(getText(value));
@@ -323,63 +251,10 @@ function applyStandardBlockStyle(ws, startRow, lastRow, lastCol) {
   }
 }
 
-function readHtmlInput(filePath) {
-  const buffer = fs.readFileSync(filePath);
-  const html = buffer.toString('latin1');
-  const rows = htmlToRows(html, filePath);
-  const info = parseVendedorCorretora(rows[0]?.[0], filePath);
-  return { filePath, type: 'html-xls', rows, info };
-}
-
-async function readInput(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const firstBytes = fs.readFileSync(filePath).slice(0, 20).toString('latin1').toLowerCase();
-
-  if (ext === '.xlsx' || firstBytes.startsWith('pk')) {
-    return await readXlsxInput(filePath);
-  }
-
-  // Arquivos .xls gerados pelo sistema são HTML disfarçado de Excel.
-  return readHtmlInput(filePath);
-}
-
-async function readDuplicateRecords(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const buffer = fs.readFileSync(filePath);
-  const firstBytes = buffer.slice(0, 20).toString('latin1').toLowerCase();
-
-  if (ext !== '.xlsx' && !firstBytes.startsWith('pk')) {
-    return extractHtmlCommissionRecords(buffer.toString('latin1'), filePath);
-  }
-
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
-  return workbook.worksheets.flatMap(sheet => recordsFromRows(getRowsFromXlsxSheet(sheet), {
-    filePath,
-    table: sheet.name
-  }));
-}
-
 registerDuplicatesIpc({
   ipcMain, assertInputFiles, fingerprintFiles, readDuplicateRecords,
   analyzeDuplicateRecords, readSavedReports, path
 });
-
-function getLastUsedRow(sheet) {
-  let last = 1;
-  sheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-    if (row.actualCellCount > 0) last = rowNumber;
-  });
-  return last;
-}
-
-function getLastUsedCol(sheet) {
-  let last = 1;
-  sheet.eachRow({ includeEmpty: false }, (row) => {
-    row.eachCell({ includeEmpty: false }, (_, colNumber) => { if (colNumber > last) last = colNumber; });
-  });
-  return last;
-}
 
 function copyXlsxBlock(sourceSheet, targetSheet, startRow, convertNumbers) {
   const lastRow = getLastUsedRow(sourceSheet);
@@ -437,22 +312,6 @@ function copyBlock(item, targetSheet, startRow, convertNumbers) {
 }
 
 
-
-function getRowsFromXlsxSheet(sheet) {
-  const rows = [];
-  const lastRow = getLastUsedRow(sheet);
-  const lastCol = getLastUsedCol(sheet);
-
-  for (let r = 1; r <= lastRow; r++) {
-    const row = [];
-    for (let c = 1; c <= lastCol; c++) {
-      row.push(sheet.getCell(r, c).value);
-    }
-    rows.push(row);
-  }
-
-  return rows;
-}
 
 function getItemCommissionTotal(item) {
   const rows = item.type === 'html-xls' ? item.rows : getRowsFromXlsxSheet(item.sheet);
