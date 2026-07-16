@@ -1035,6 +1035,12 @@ input:focus { border-color: #0d79e7; box-shadow: 0 0 0 3px rgba(13,121,231,.11);
 }
 
 .user-access-list, .trash-list { display: grid; gap: 10px; }
+.audit-list { display: grid; gap: 8px; }
+.audit-row { align-items: center; border-bottom: 1px solid var(--line); display: grid; gap: 12px; grid-template-columns: auto minmax(220px, 1fr) minmax(220px, 1fr); padding: 12px 4px; }
+.audit-row:last-child { border-bottom: 0; }
+.audit-row > div { display: grid; gap: 3px; }
+.audit-row small { color: var(--muted); }
+.audit-icon { align-items: center; background: rgba(11,117,226,.1); border-radius: 9px; color: var(--primary); display: grid; height: 36px; justify-content: center; width: 36px; }
 .quick-actions { display: grid; gap: 10px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: -8px 0 22px; }
 .quick-actions button {
   align-items: center;

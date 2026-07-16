@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Sun, Moon, LayoutDashboard, PlusCircle, History, 
   FileDown, Table, Settings, Terminal, X, Copy, Check, Trash2,
-  ChevronLeft, ChevronRight, AlertCircle, Info, CheckCircle2, UserCog, ArchiveRestore
+  ChevronLeft, ChevronRight, AlertCircle, Info, CheckCircle2, UserCog, ArchiveRestore, ScrollText
 } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import NewReport from './pages/NewReport';
@@ -18,6 +18,7 @@ import { trashReport as trashCloudReport } from './services/cloudReports';
 import UserManagement from './pages/UserManagement';
 import Trash from './pages/Trash';
 import dentalPlusLogo from '../assets/logo.png';
+import AuditLog from './pages/AuditLog';
 
 export function formatBRL(value) {
   return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -138,7 +139,8 @@ export default function App() {
     'general-report': 'Consolidação de planilhas individuais em relatório geral',
     'config-corretoras': 'Mapeamentos e apelidos das corretoras',
     'users': 'Contas, perfis e aprovações',
-    'trash': 'Registros excluídos nos últimos 30 dias'
+    'trash': 'Registros excluídos nos últimos 30 dias',
+    'audit': 'Eventos operacionais e administrativos'
   };
 
   const navItems = [
@@ -149,6 +151,7 @@ export default function App() {
     { id: 'general-report', label: 'Relatório Geral', icon: Table, tooltip: 'Relatório Geral' },
     { id: 'config-corretoras', label: 'Configurar corretoras', icon: Settings, tooltip: 'Configurar corretoras', adminOnly: true },
     { id: 'users', label: 'Usuários', icon: UserCog, tooltip: 'Usuários e acessos', adminOnly: true },
+    { id: 'audit', label: 'Auditoria', icon: ScrollText, tooltip: 'Auditoria compartilhada', adminOnly: true },
     { id: 'trash', label: 'Lixeira', icon: ArchiveRestore, tooltip: 'Lixeira de 30 dias', adminOnly: true }
   ].filter(item => !item.adminOnly || session.isAdmin);
 
@@ -330,6 +333,7 @@ export default function App() {
             />
           )}
           {activePage === 'users' && <UserManagement />}
+          {activePage === 'audit' && <AuditLog />}
           {activePage === 'trash' && <Trash cloudReports={cloudReports} refreshHistory={refreshHistory} />}
         </div>
       </main>

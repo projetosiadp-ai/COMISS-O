@@ -36,6 +36,15 @@ export function subscribeReports(onChange, onError) {
   }, onError);
 }
 
+export function subscribeAudit(onChange, onError) {
+  requireCloud();
+  return onSnapshot(collection(db, 'audit'), snapshot => {
+    onChange(snapshot.docs
+      .map(item => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))));
+  }, onError);
+}
+
 export async function trashReport(reportId, user) {
   requireCloud();
   const deletedAt = new Date().toISOString();
