@@ -225,13 +225,14 @@ async function readRowsForSummary(filePath) {
   return { rows, info: input.info };
 }
 
-async function buildSummaryItems(files) {
+async function buildSummaryItems(files, onFileProcessed) {
   const byCorretora = new Map();
   const errors = [];
+  let count = 0;
 
   for (const file of files) {
     try {
-      const { rows, info } = await readRowsForSummary(file);
+      const { rows } = await readRowsForSummary(file);
       const corretora = getCorretoraFromFileName(file);
       const { total, found } = findTotalInRows(rows);
 
@@ -246,6 +247,8 @@ async function buildSummaryItems(files) {
     } catch (err) {
       errors.push(`${path.basename(file)}: ${err.message}`);
     }
+    count++;
+    if (onFileProcessed) onFileProcessed(count, files.length);
   }
 
   const items = Array.from(byCorretora.values()).sort((a, b) => a.corretora.localeCompare(b.corretora, 'pt-BR'));
@@ -356,32 +359,11 @@ async function handleGenerateSummaryPdf(event, { files, outputFolder }) {
 
   sendProgress(0, files.length, 'Lendo planilhas para o resumo...', 'leitura');
 
-  // Reaproveita a leitura em lote, mas com progresso simples.
-  const byCorretora = new Map();
-  const errors = [];
-  let count = 0;
+  // Reaproveita a leitura em lote (buildSummaryItems) emitindo progresso por arquivo.
+  const { items, errors } = await buildSummaryItems(files, (current, total) => {
+    sendProgress(current, total, `Lendo planilhas: ${current} de ${total}`, 'leitura');
+  });
 
-  for (const file of files) {
-    try {
-      const { rows, info } = await readRowsForSummary(file);
-      const corretora = getCorretoraFromFileName(file);
-      const { total, found } = findTotalInRows(rows);
-
-      if (!byCorretora.has(corretora)) {
-        byCorretora.set(corretora, { corretora, total: 0, arquivos: 0, arquivosSemTotal: [] });
-      }
-      const item = byCorretora.get(corretora);
-      item.arquivos += 1;
-      item.total += total;
-      if (!found) item.arquivosSemTotal.push(path.basename(file));
-    } catch (err) {
-      errors.push(`${path.basename(file)}: ${err.message}`);
-    }
-    count++;
-    sendProgress(count, files.length, `Lendo planilhas: ${count} de ${files.length}`, 'leitura');
-  }
-
-  const items = Array.from(byCorretora.values()).sort((a, b) => a.corretora.localeCompare(b.corretora, 'pt-BR'));
   if (!items.length) throw new Error('Não foi possível extrair nenhum resumo das planilhas selecionadas.');
 
   sendProgress(files.length, files.length, 'Gerando PDF...', 'geracao');
