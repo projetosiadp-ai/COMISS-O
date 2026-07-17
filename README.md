@@ -99,3 +99,8 @@ Alterações nas fórmulas de comissão, na identificação de totais ou na
 consolidação exigem solicitação específica e novos testes de regressão.
 Refatorações devem preservar os resultados demonstrados por
 `tests/baseline/current-behavior.test.cjs`. Rode `npm test` antes de compilar.
+
+## Licença
+
+Software proprietário — todos os direitos reservados. Consulte
+[`LICENSE`](LICENSE).
