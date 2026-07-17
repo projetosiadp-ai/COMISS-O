@@ -1,7 +1,57 @@
 import React, { useState, useEffect } from 'react';
-import HistoryTable from '../components/HistoryTable';
+import { formatBRL } from '../App';
 
-export default function SavedReports({ savedReports, refreshHistory, onNavigate }) {
+function HistoryTable({ reports, onDelete, isAdmin }) {
+  if (!reports || !reports.length) {
+    return <div className="empty-state">Nenhum relatório salvo ainda.</div>;
+  }
+
+  const handleOpenPath = async (path) => {
+    if (window.api && window.api.openPath) {
+      try {
+        await window.api.openPath(path);
+      } catch (err) {
+        alert('Erro ao abrir pasta: ' + err.message);
+      }
+    }
+  };
+
+  return (
+    <table className="history-table">
+      <thead>
+        <tr>
+          <th>Relatório</th>
+          <th>Vendedores</th>
+          <th>Corretoras</th>
+          <th>Valor total</th>
+          <th>Arquivos</th>
+          <th>Criado em</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        {reports.map((report) => (
+          <tr key={report.id}>
+            <td><strong>{report.label}</strong></td>
+            <td>{Number(report.sellers || 0)}</td>
+            <td>{Number(report.brokers || 0)}</td>
+            <td>{formatBRL(report.totalValue)}</td>
+            <td>{Number(report.inputFiles || 0)}</td>
+            <td>{new Date(report.createdAt).toLocaleString('pt-BR')}</td>
+            <td>
+              <div className="history-row-actions">
+                <button onClick={() => handleOpenPath(report.outputRoot)}>Abrir pasta</button>
+                {isAdmin && <button className="delete" onClick={() => onDelete(report.id)}>Lixeira</button>}
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export default function SavedReports({ savedReports, refreshHistory, onNavigate, isAdmin, onTrashReport, onReportCreated }) {
   const [activeTabId, setActiveTabId] = useState(null);
   
   // States para importação de relatório pronto
@@ -23,12 +73,10 @@ export default function SavedReports({ savedReports, refreshHistory, onNavigate 
   }, [savedReports, activeTabId]);
 
   const handleDeleteReport = async (id) => {
-    if (!confirm('Excluir este registro do histórico? Os arquivos gerados não serão apagados.')) return;
+    if (!confirm('Mover este registro para a lixeira por 30 dias? Os arquivos gerados não serão apagados.')) return;
     try {
-      if (window.api && window.api.deleteSavedReport) {
-        await window.api.deleteSavedReport(id);
-        refreshHistory();
-      }
+      await onTrashReport(id);
+      refreshHistory();
     } catch (err) {
       alert('Erro ao deletar registro: ' + err.message);
     }
@@ -89,6 +137,7 @@ export default function SavedReports({ savedReports, refreshHistory, onNavigate 
           setSelectedReadyFiles([]);
           setShowImportForm(false);
           refreshHistory();
+          onReportCreated?.(res.savedReport);
         }
         if (res.errors && res.errors.length > 0) {
           alert('Alguns relatórios apresentaram erro na importação:\n' + res.errors.join('\n'));
@@ -226,7 +275,7 @@ export default function SavedReports({ savedReports, refreshHistory, onNavigate 
           {savedReports.length === 0 ? (
             <div className="empty-state">Nenhum relatório salvo ainda.</div>
           ) : (
-            <HistoryTable reports={filteredReports} onDelete={handleDeleteReport} />
+            <HistoryTable reports={filteredReports} onDelete={handleDeleteReport} isAdmin={isAdmin} />
           )}
         </div>
       </section>

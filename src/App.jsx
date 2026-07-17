@@ -1,9 +1,24 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { 
+  LayoutDashboard, PlusCircle, History, FileDown, Table, Settings,
+  UserCog, ArchiveRestore, ScrollText
+} from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import NewReport from './pages/NewReport';
 import SavedReports from './pages/SavedReports';
 import PdfSummary from './pages/PdfSummary';
 import GeneralReport from './pages/GeneralReport';
+import ConfigCorretoras from './pages/ConfigCorretoras';
+import AuthScreen from './auth/AuthScreen';
+import { useAuth } from './auth/AuthContext';
+import { subscribeReports, syncReport } from './services/cloudReports';
+import { trashReport as trashCloudReport } from './services/cloudReports';
+import UserManagement from './pages/UserManagement';
+import Trash from './pages/Trash';
+import AuditLog from './pages/AuditLog';
+import Sidebar from './components/layout/Sidebar';
+import Topbar from './components/layout/Topbar';
+import LogConsole from './components/layout/LogConsole';
 
 export function formatBRL(value) {
   return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -19,13 +34,37 @@ export function escapeHtml(value) {
 }
 
 export default function App() {
+  const session = useAuth();
   const [activePage, setActivePage] = useState('dashboard');
-  const [savedReports, setSavedReports] = useState([]);
+  const [localReports, setLocalReports] = useState([]);
+  const [cloudReports, setCloudReports] = useState([]);
+  const [cloudState, setCloudState] = useState({ fromCache: true, hasPendingWrites: false });
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   
-  // States para logs e exibição do console
+  // Theme state
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved) return saved;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    return prefersDark ? 'dark' : 'light';
+  });
+
+  // Apply theme class
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  // States para logs e console
   const [logs, setLogs] = useState([]);
   const [showConsole, setShowConsole] = useState(false);
+  const [logSeverityFilter, setLogSeverityFilter] = useState('ALL'); // ALL, info, success, error
+  const [copyFeedback, setCopyFeedback] = useState(false);
   const consoleBodyRef = React.useRef(null);
 
   const addLog = useCallback((type, message) => {
@@ -33,7 +72,13 @@ export default function App() {
     setLogs(prev => [...prev, { id: Date.now() + Math.random(), timestamp, type, message }]);
   }, []);
 
-  // Rolagem automática para o fim do log console
+  const savedReports = useMemo(() => {
+    const merged = new Map(localReports.map(report => [report.id, report]));
+    cloudReports.forEach(report => merged.set(report.id, { ...merged.get(report.id), ...report }));
+    return Array.from(merged.values()).filter(report => !report.deletedAt);
+  }, [localReports, cloudReports]);
+
+  // Auto-scroll inside logs console
   useEffect(() => {
     if (consoleBodyRef.current) {
       consoleBodyRef.current.scrollTop = consoleBodyRef.current.scrollHeight;
@@ -45,7 +90,7 @@ export default function App() {
     try {
       if (window.api && window.api.listSavedReports) {
         const list = await window.api.listSavedReports();
-        setSavedReports(list || []);
+        setLocalReports(list || []);
       }
     } catch (err) {
       console.error('Erro ao listar relatórios salvos:', err);
@@ -59,80 +104,98 @@ export default function App() {
     refreshHistory();
   }, [refreshHistory]);
 
+  useEffect(() => {
+    if (!session.configured || !session.user || session.profile?.status !== 'approved') {
+      setCloudReports([]);
+      return undefined;
+    }
+    return subscribeReports((reports, metadata) => {
+      setCloudReports(reports);
+      setCloudState(metadata);
+    }, error => addLog('error', `Falha ao sincronizar histórico: ${error.message}`));
+  }, [session.configured, session.user, session.profile?.status, addLog]);
+
+  const handleReportCreated = useCallback(report => {
+    if (!session.configured || !session.user || session.profile?.status !== 'approved') return;
+    syncReport(report, session.user)
+      .then(() => addLog('success', 'Metadados do relatório sincronizados com segurança.'))
+      .catch(error => addLog('error', `Sincronização pendente: ${error.message}`));
+  }, [session.configured, session.user, session.profile?.status, addLog]);
+
+  const handleTrashReport = useCallback(async reportId => {
+    if (!session.isAdmin) throw new Error('Somente Administradores podem mover relatórios para a lixeira.');
+    await window.api.deleteSavedReport(reportId);
+    if (session.configured && cloudReports.some(report => report.id === reportId)) {
+      await trashCloudReport(reportId, session.user);
+    }
+    await refreshHistory();
+  }, [session.isAdmin, session.configured, session.user, cloudReports, refreshHistory]);
+
   const pageSubtitles = {
     dashboard: 'Visão geral dos relatórios',
     'new-report': 'Importação e geração de relatórios',
     'saved-reports': 'Histórico mensal dos processamentos',
     'pdf-summary': 'Resumo único das comissões em PDF',
-    'general-report': 'Consolidação de planilhas individuais em relatório geral'
+    'general-report': 'Consolidação de planilhas individuais em relatório geral',
+    'config-corretoras': 'Mapeamentos e apelidos das corretoras',
+    'users': 'Contas, perfis e aprovações',
+    'trash': 'Registros excluídos nos últimos 30 dias',
+    'audit': 'Eventos operacionais e administrativos'
   };
 
-  const pageTitles = {
-    dashboard: 'Dashboard',
-    'new-report': 'Novo relatório',
-    'saved-reports': 'Relatórios salvos',
-    'pdf-summary': 'PDF de resumo',
-    'general-report': 'Relatório Geral'
-  };
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, tooltip: 'Dashboard' },
+    { id: 'new-report', label: 'Novo relatório', icon: PlusCircle, tooltip: 'Novo relatório' },
+    { id: 'saved-reports', label: 'Relatórios salvos', icon: History, tooltip: 'Relatórios salvos' },
+    { id: 'pdf-summary', label: 'PDF de resumo', icon: FileDown, tooltip: 'PDF de resumo' },
+    { id: 'general-report', label: 'Relatório Geral', icon: Table, tooltip: 'Relatório Geral' },
+    { id: 'config-corretoras', label: 'Configurar corretoras', icon: Settings, tooltip: 'Configurar corretoras', adminOnly: true },
+    { id: 'users', label: 'Usuários', icon: UserCog, tooltip: 'Usuários e acessos', adminOnly: true },
+    { id: 'audit', label: 'Auditoria', icon: ScrollText, tooltip: 'Auditoria compartilhada', adminOnly: true },
+    { id: 'trash', label: 'Lixeira', icon: ArchiveRestore, tooltip: 'Lixeira de 30 dias', adminOnly: true }
+  ].filter(item => !item.adminOnly || session.isAdmin);
 
-  const errorLogsCount = logs.filter(l => l.type === 'error').length;
+  // Filters and limits logs to last 150 items to prevent DOM lag (virtualization-like)
+  const filteredLogs = useMemo(() => {
+    const list = logSeverityFilter === 'ALL' 
+      ? logs 
+      : logs.filter(l => l.type === logSeverityFilter);
+    return list.slice(-150); // limit render list
+  }, [logs, logSeverityFilter]);
+
+  const errorLogsCount = useMemo(() => logs.filter(l => l.type === 'error').length, [logs]);
+
+  const handleCopyLogs = useCallback(() => {
+    const logText = logs.map(l => `[${l.timestamp}] [${l.type.toUpperCase()}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(logText).then(() => {
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 1500);
+    });
+  }, [logs]);
+
+  if (session.loading || (session.configured && (!session.user || session.profile?.status !== 'approved'))) {
+    return <AuthScreen />;
+  }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <img src="assets/logo.png" alt="Dental Plus" />
-          <span>Gestão de Comissões</span>
-        </div>
-
-        <nav className="side-nav">
-          <button 
-            className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} 
-            onClick={() => { setActivePage('dashboard'); refreshHistory(); }}
-          >
-            <span>⌂</span> Dashboard
-          </button>
-          <button 
-            className={`nav-item ${activePage === 'new-report' ? 'active' : ''}`} 
-            onClick={() => setActivePage('new-report')}
-          >
-            <span>＋</span> Novo relatório
-          </button>
-          <button 
-            className={`nav-item ${activePage === 'saved-reports' ? 'active' : ''}`} 
-            onClick={() => { setActivePage('saved-reports'); refreshHistory(); }}
-          >
-            <span>▣</span> Relatórios salvos
-          </button>
-          <button 
-            className={`nav-item ${activePage === 'pdf-summary' ? 'active' : ''}`} 
-            onClick={() => setActivePage('pdf-summary')}
-          >
-            <span>▤</span> PDF de resumo
-          </button>
-          <button 
-            className={`nav-item ${activePage === 'general-report' ? 'active' : ''}`} 
-            onClick={() => setActivePage('general-report')}
-          >
-            <span>田</span> Relatório Geral
-          </button>
-        </nav>
-
-        <div className="sidebar-footer">
-          <strong>Juntador de Comissões</strong>
-          <span>Alpha</span>
-          <small>Desenvolvido por<br /><b>glzn-comercial</b></small>
-        </div>
-      </aside>
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(value => !value)}
+        items={navItems}
+        activePage={activePage}
+        onNavigate={setActivePage}
+        onRefresh={refreshHistory}
+      />
 
       <main className="main-area">
-        <header className="topbar">
-          <div>
-            <strong>Juntador de Comissões Dental Plus</strong>
-            <span id="pageSubtitle">{pageSubtitles[activePage]}</span>
-          </div>
-          <span className="alpha-pill">ALPHA</span>
-        </header>
+        <Topbar
+          subtitle={pageSubtitles[activePage]}
+          theme={theme}
+          onToggleTheme={() => setTheme(value => value === 'light' ? 'dark' : 'light')}
+          session={session}
+          cloudState={cloudState}
+        />
 
         <div className="content">
           {activePage === 'dashboard' && (
@@ -140,12 +203,16 @@ export default function App() {
               savedReports={savedReports} 
               onNavigate={setActivePage} 
               refreshHistory={refreshHistory}
+              isAdmin={session.isAdmin}
+              onTrashReport={handleTrashReport}
             />
           )}
           {activePage === 'new-report' && (
             <NewReport 
               refreshHistory={refreshHistory}
               addLog={addLog}
+              onReportCreated={handleReportCreated}
+              knownReports={savedReports}
             />
           )}
           {activePage === 'saved-reports' && (
@@ -153,6 +220,9 @@ export default function App() {
               savedReports={savedReports} 
               refreshHistory={refreshHistory}
               onNavigate={setActivePage}
+              isAdmin={session.isAdmin}
+              onTrashReport={handleTrashReport}
+              onReportCreated={handleReportCreated}
             />
           )}
           {activePage === 'pdf-summary' && (
@@ -166,42 +236,30 @@ export default function App() {
               addLog={addLog}
             />
           )}
+          {activePage === 'config-corretoras' && (
+            <ConfigCorretoras 
+              addLog={addLog}
+            />
+          )}
+          {activePage === 'users' && <UserManagement />}
+          {activePage === 'audit' && <AuditLog />}
+          {activePage === 'trash' && <Trash cloudReports={cloudReports} refreshHistory={refreshHistory} />}
         </div>
       </main>
 
-      {/* Botão flutuante do console de logs */}
-      <button className="log-console-trigger" onClick={() => setShowConsole(!showConsole)}>
-        <span>{showConsole ? '✕' : '⧵_'}</span>
-        {!showConsole && errorLogsCount > 0 && (
-          <span className="badge">{errorLogsCount}</span>
-        )}
-      </button>
-
-      {/* Painel do console de logs */}
-      {showConsole && (
-        <div className="log-console-panel">
-          <div className="log-console-header">
-            <h3><span>⚙</span> Console de Logs</h3>
-            <div className="log-console-actions">
-              <button onClick={() => setLogs([])}>Limpar</button>
-              <button className="close" onClick={() => setShowConsole(false)}>Fechar</button>
-            </div>
-          </div>
-          <div className="log-console-body" ref={consoleBodyRef}>
-            {logs.length === 0 ? (
-              <div className="log-empty">Nenhum log registrado ainda.</div>
-            ) : (
-              logs.map(log => (
-                <div key={log.id} className="log-item">
-                  <span className="log-time">[{log.timestamp}]</span>
-                  <span className={`log-type ${log.type}`}>{log.type.toUpperCase()}</span>
-                  <span className="log-text">{log.message}</span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
+      <LogConsole
+        logs={logs}
+        setLogs={setLogs}
+        visible={showConsole}
+        setVisible={setShowConsole}
+        filter={logSeverityFilter}
+        setFilter={setLogSeverityFilter}
+        filteredLogs={filteredLogs}
+        bodyRef={consoleBodyRef}
+        copyFeedback={copyFeedback}
+        onCopy={handleCopyLogs}
+        errorCount={errorLogsCount}
+      />
     </div>
   );
 }
