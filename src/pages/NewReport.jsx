@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { formatBRL, escapeHtml } from '../App';
+import { 
+  Upload, FileSpreadsheet, FileCode, File, X, Trash2, 
+  Settings, FolderOpen, Play, CheckCircle, AlertCircle, RefreshCw,
+  Users, DollarSign, Search, ShieldAlert
+} from 'lucide-react';
+import { formatBRL } from '../App';
 
-export default function NewReport({ refreshHistory, addLog }) {
+function formatBytes(bytes) {
+  if (bytes === undefined || bytes === null || isNaN(bytes)) return 'N/A';
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+export default function NewReport({ refreshHistory, addLog, onReportCreated, knownReports = [] }) {
   const log = (type, msg) => {
     if (addLog) addLog(type, msg);
   };
@@ -20,40 +34,6 @@ export default function NewReport({ refreshHistory, addLog }) {
   const [processing, setProcessing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   
-  // Estados para detecção de duplicidades
-  const [analysis, setAnalysis] = useState([]);
-  const [correctedFiles, setCorrectedFiles] = useState(new Set());
-
-  // Executa análise toda vez que a lista de arquivos mudar
-  useEffect(() => {
-    const analyze = async () => {
-      if (selectedFiles.length > 0 && window.api && window.api.analyzeFiles) {
-        try {
-          const res = await window.api.analyzeFiles(selectedFiles);
-          setAnalysis(res || []);
-        } catch (err) {
-          console.error("Erro ao analisar arquivos:", err);
-        }
-      } else {
-        setAnalysis([]);
-      }
-    };
-    analyze();
-  }, [selectedFiles]);
-
-  // Remove arquivos corrigidos se eles saírem da lista selecionada
-  useEffect(() => {
-    setCorrectedFiles(prev => {
-      const next = new Set();
-      prev.forEach(f => {
-        if (selectedFiles.includes(f)) {
-          next.add(f);
-        }
-      });
-      return next;
-    });
-  }, [selectedFiles]);
-
   const [progress, setProgress] = useState({
     percent: 0,
     message: 'Selecione os arquivos para começar.',
@@ -67,6 +47,60 @@ export default function NewReport({ refreshHistory, addLog }) {
   });
   
   const [result, setResult] = useState(null);
+  const [analysis, setAnalysis] = useState([]);
+  const [correctedFiles, setCorrectedFiles] = useState(new Set());
+  const activeJobRef = React.useRef(null);
+
+  useEffect(() => {
+    const analyze = async () => {
+      if (selectedFiles.length > 0 && window.api && window.api.analyzeFiles) {
+        try {
+          const filePaths = selectedFiles.map(f => f.path);
+          const res = await window.api.analyzeFiles(filePaths);
+          setAnalysis(res || []);
+        } catch (err) {
+          console.error("Erro ao analisar arquivos:", err);
+        }
+      } else {
+        setAnalysis([]);
+      }
+    };
+    analyze();
+  }, [selectedFiles]);
+
+  useEffect(() => {
+    setCorrectedFiles(prev => {
+      const next = new Set();
+      prev.forEach(f => {
+        if (selectedFiles.some(file => file.path === f)) {
+          next.add(f);
+        }
+      });
+      return next;
+    });
+  }, [selectedFiles]);
+
+  const uncorrectedDuplicates = analysis.filter(f => f.hasDuplicates && !correctedFiles.has(f.filePath));
+  const correctedDuplicates = analysis.filter(f => f.hasDuplicates && correctedFiles.has(f.filePath));
+
+  const handleCorrectAll = () => {
+    setCorrectedFiles(prev => {
+      const next = new Set(prev);
+      analysis.forEach(f => {
+        if (f.hasDuplicates) {
+          next.add(f.filePath);
+        }
+      });
+      return next;
+    });
+    log('success', 'Duplicidades de comissão corrigidas com sucesso!');
+  };
+
+  useEffect(() => {
+    window.api?.getAppSettings?.().then(settings => {
+      if (settings?.defaultOutputFolder) setOutputFolder(settings.defaultOutputFolder);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (window.api && window.api.onProgress) {
@@ -94,21 +128,64 @@ export default function NewReport({ refreshHistory, addLog }) {
     }
   }, [addLog]);
 
-  const addFiles = (paths) => {
-    const allowed = /\.(xls|xlsx|html|htm)$/i;
-    const filtered = (paths || []).filter(p => allowed.test(p));
+  // Validação e adição de arquivos
+  const addFiles = (files) => {
+    const allowedExts = /\.(xls|xlsx|html|htm)$/i;
+    const maxSizeBytes = 50 * 1024 * 1024; // 50MB
+    const validFiles = [];
+    let rejectedCount = 0;
+
+    files.forEach(file => {
+      const name = file.name || file.path.split(/[\\/]/).pop();
+      const ext = name.split('.').pop().toLowerCase();
+      const isValidExt = allowedExts.test(name);
+      const isSizeValid = !file.size || file.size <= maxSizeBytes;
+
+      if (isValidExt && isSizeValid) {
+        validFiles.push({
+          path: file.path,
+          name,
+          size: file.size || null,
+          ext
+        });
+      } else {
+        rejectedCount++;
+        if (!isValidExt) {
+          log('error', `Arquivo rejeitado (extensão inválida): ${name}`);
+        } else {
+          log('error', `Arquivo rejeitado (tamanho excede 50MB): ${name}`);
+        }
+      }
+    });
+
+    if (rejectedCount > 0) {
+      alert(`${rejectedCount} arquivo(s) foram rejeitados. Verifique extensões (.xls, .xlsx, .html) e tamanho limite (50MB).`);
+    }
+
     setSelectedFiles(prev => {
-      const combined = [...prev, ...filtered];
-      const next = [...new Set(combined)];
-      log('info', `${filtered.length} arquivos válidos adicionados. Total na fila: ${next.length}`);
-      return next;
+      // Remover duplicatas por path
+      const combined = [...prev, ...validFiles];
+      const unique = [];
+      const pathsSeen = new Set();
+      for (const f of combined) {
+        if (!pathsSeen.has(f.path)) {
+          pathsSeen.add(f.path);
+          unique.push(f);
+        }
+      }
+      log('info', `${validFiles.length} arquivos válidos adicionados. Total na fila: ${unique.length}`);
+      return unique;
     });
   };
 
   const handleSelectFiles = async () => {
     if (window.api && window.api.selectFiles) {
       const paths = await window.api.selectFiles();
-      addFiles(paths);
+      if (paths && paths.length > 0) {
+        // Como o seletor nativo só retorna paths, convertemos em objetos de arquivo
+        const files = paths.map(p => ({ path: p, size: null }));
+        addFiles(files);
+      }
     }
   };
 
@@ -117,6 +194,7 @@ export default function NewReport({ refreshHistory, addLog }) {
       const folder = await window.api.selectOutputFolder();
       if (folder) {
         setOutputFolder(folder);
+        window.api.saveAppSettings?.({ defaultOutputFolder: folder }).catch(() => {});
         log('info', `Pasta de destino selecionada: ${folder}`);
       }
     }
@@ -125,6 +203,11 @@ export default function NewReport({ refreshHistory, addLog }) {
   const handleClearFiles = () => {
     setSelectedFiles([]);
     log('info', 'Fila de arquivos selecionados limpa.');
+  };
+
+  const handleRemoveFile = (pathToRemove) => {
+    setSelectedFiles(prev => prev.filter(f => f.path !== pathToRemove));
+    log('info', 'Arquivo removido individualmente da fila.');
   };
 
   const handleDragOver = (e) => {
@@ -139,26 +222,18 @@ export default function NewReport({ refreshHistory, addLog }) {
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
-    if (window.api && window.api.getDroppedFilePaths) {
-      const paths = window.api.getDroppedFilePaths(e.dataTransfer.files);
-      addFiles(paths);
-    }
-  };
-
-  const uncorrectedDuplicates = analysis.filter(f => f.hasDuplicates && !correctedFiles.has(f.filePath));
-  const correctedDuplicates = analysis.filter(f => f.hasDuplicates && correctedFiles.has(f.filePath));
-
-  const handleCorrectAll = () => {
-    setCorrectedFiles(prev => {
-      const next = new Set(prev);
-      analysis.forEach(f => {
-        if (f.hasDuplicates) {
-          next.add(f.filePath);
-        }
+    
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const filesArray = Array.from(e.dataTransfer.files).map(f => {
+        const path = window.api.getDroppedFilePaths([f])[0] || f.name;
+        return {
+          path,
+          name: f.name,
+          size: f.size
+        };
       });
-      return next;
-    });
-    log('success', 'Duplicidades de comissão corrigidas com sucesso!');
+      addFiles(filesArray);
+    }
   };
 
   const monthLabel = (value) => {
@@ -168,6 +243,8 @@ export default function NewReport({ refreshHistory, addLog }) {
       .format(new Date(year, month - 1, 1))
       .replace(/^./, c => c.toUpperCase());
   };
+
+  // Lógica de análise em lote original removida para restaurar as validações antigas de PF/PJ.
 
   const handleGenerate = async () => {
     if (!reportMonth) {
@@ -186,6 +263,17 @@ export default function NewReport({ refreshHistory, addLog }) {
       return;
     }
 
+    if (uncorrectedDuplicates.length > 0) {
+      setStatus({
+        type: 'error',
+        message: 'Processamento pausado. Corrija as duplicidades detectadas antes de gerar os relatórios para garantir que os totais estejam corretos.'
+      });
+      log('error', 'Geração interrompida. Duplicidades de comissão requerem correção (PJ e PF simultâneos).');
+      return;
+    }
+
+    const jobId = globalThis.crypto?.randomUUID?.() || `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    activeJobRef.current = jobId;
     setProcessing(true);
     setResult(null);
     setProgress({
@@ -202,17 +290,16 @@ export default function NewReport({ refreshHistory, addLog }) {
 
     try {
       if (window.api && window.api.generateReports) {
-        const filesToDeduplicate = Array.from(correctedFiles);
-        const filesToSkip = analysis.filter(f => f.hasDuplicates && !correctedFiles.has(f.filePath)).map(f => f.filePath);
-
+        // Envia apenas a lista de caminhos (paths) para o backend do Electron
+        const filePaths = selectedFiles.map(f => f.path);
         const res = await window.api.generateReports({
-          files: selectedFiles,
+          files: filePaths,
           outputFolder,
           sortAlpha,
           convertNumbers,
           reportMonth,
-          filesToDeduplicate,
-          filesToSkip
+          jobId,
+          filesToDeduplicate: correctedDuplicates.map(f => f.filePath)
         });
 
         setResult(res);
@@ -229,6 +316,7 @@ export default function NewReport({ refreshHistory, addLog }) {
         }
 
         refreshHistory();
+        onReportCreated?.(res.savedReport);
       }
     } catch (err) {
       setStatus({
@@ -237,7 +325,17 @@ export default function NewReport({ refreshHistory, addLog }) {
       });
       log('error', `Erro crítico no processamento: ${err.message}`);
     } finally {
+      activeJobRef.current = null;
       setProcessing(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!activeJobRef.current || !window.api?.cancelProcessing) return;
+    const requested = await window.api.cancelProcessing(activeJobRef.current);
+    if (requested) {
+      setStatus({ type: 'loading', message: 'Cancelamento solicitado. Finalizando a etapa segura atual...' });
+      log('info', 'Cancelamento solicitado pelo usuário.');
     }
   };
 
@@ -254,6 +352,111 @@ export default function NewReport({ refreshHistory, addLog }) {
           <p>Informe o mês, arraste as planilhas e gere os arquivos separados por corretora.</p>
         </div>
       </div>
+
+      <section className="panel report-setup">
+        <div className="date-column">
+          <label htmlFor="reportMonth">Mês de referência</label>
+          <input 
+            id="reportMonth" 
+            type="month" 
+            value={reportMonth} 
+            onChange={(e) => setReportMonth(e.target.value)} 
+          />
+          <p>O mês será usado para nomear e salvar o relatório no histórico.</p>
+        </div>
+
+        <div 
+          id="reportDropzone" 
+          className={`dropzone ${dragOver ? 'dragover' : ''}`}
+          onClick={handleSelectFiles}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          tabIndex="0"
+          style={{ position: 'relative' }}
+        >
+          <div className="upload-icon"><Upload size={24} /></div>
+          <strong>Arraste as comissões para esta área</strong>
+          <span>ou clique para selecionar os arquivos</span>
+          <small>.XLS · .XLSX · .HTML</small>
+        </div>
+      </section>
+
+      {/* Lista de Arquivos Selecionados */}
+      <section className="panel compact-panel">
+        <div className="selection-head">
+          <div>
+            <h2>Arquivos selecionados</h2>
+            <p id="fileCount" className="muted" style={{ margin: 0, fontSize: '13px' }}>
+              {selectedFiles.length ? `${selectedFiles.length} arquivo(s) selecionado(s).` : 'Nenhum arquivo selecionado.'}
+            </p>
+          </div>
+          {selectedFiles.length > 0 && (
+            <button id="clearFiles" className="ghost danger" onClick={handleClearFiles} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Trash2 size={13} /> Limpar Tudo
+            </button>
+          )}
+        </div>
+        
+        <div id="fileList" className="file-list" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+          {selectedFiles.slice(0, 150).map((file, idx) => {
+            const isExcel = ['xls', 'xlsx'].includes(file.ext);
+            const isHtml = ['html', 'htm'].includes(file.ext);
+            
+            return (
+              <div 
+                key={file.path} 
+                className="file-chip" 
+                title={file.path}
+                style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  background: 'var(--panel)',
+                  border: '1px solid var(--line)',
+                  padding: '8px 12px',
+                  borderRadius: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                  {isExcel ? (
+                    <FileSpreadsheet size={16} style={{ color: 'var(--green)', flexShrink: 0 }} />
+                  ) : isHtml ? (
+                    <FileCode size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  ) : (
+                    <File size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    <span style={{ fontWeight: '600', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '12px' }}>{file.name}</span>
+                    <span style={{ fontSize: '10px', color: 'var(--muted)' }}>{formatBytes(file.size)}</span>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => handleRemoveFile(file.path)}
+                  style={{
+                    background: 'transparent',
+                    border: 0,
+                    color: 'var(--red)',
+                    cursor: 'pointer',
+                    padding: '2px',
+                    display: 'flex',
+                    alignItems: 'center'
+                  }}
+                  title="Remover arquivo"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            );
+          })}
+          {selectedFiles.length > 150 && (
+            <div className="file-chip" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontStyle: 'italic' }}>
+              ... e mais {selectedFiles.length - 150} arquivos.
+            </div>
+          )}
+        </div>
+      </section>
 
       {uncorrectedDuplicates.length > 0 && (
         <div style={{
@@ -275,9 +478,9 @@ export default function NewReport({ refreshHistory, addLog }) {
             Identificamos vendas PF e PJ simultâneas para as seguintes corretoras. 
             Elas <strong>não serão geradas</strong> até que a duplicidade seja corrigida para manter o total consolidado correto:
             <ul style={{ margin: '8px 0 0 20px', padding: 0 }}>
-              {uncorrectedDuplicates.map((file, idx) => (
+              {uncorrectedDuplicates.map((f, idx) => (
                 <li key={idx}>
-                  <strong>{file.brokerName || file.fileName}</strong>: {file.duplicateCompanies.join(', ')} (Duplicado em PF e PJ)
+                  {f.brokerName} ({f.duplicateCompanies.join(', ')} - consta na PF e PJ)
                 </li>
               ))}
             </ul>
@@ -323,79 +526,6 @@ export default function NewReport({ refreshHistory, addLog }) {
         </div>
       )}
 
-      <section className="panel report-setup">
-        <div className="date-column">
-          <label htmlFor="reportMonth">Mês de referência</label>
-          <input 
-            id="reportMonth" 
-            type="month" 
-            value={reportMonth} 
-            onChange={(e) => setReportMonth(e.target.value)} 
-          />
-          <p>O mês será usado para nomear e salvar o relatório no histórico.</p>
-        </div>
-
-        <div 
-          id="reportDropzone" 
-          className={`dropzone ${dragOver ? 'dragover' : ''}`}
-          onClick={handleSelectFiles}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          tabIndex="0"
-        >
-          <div className="upload-icon">⇧</div>
-          <strong>Arraste as comissões para esta área</strong>
-          <span>ou clique para selecionar os arquivos</span>
-          <small>.XLS · .XLSX · .HTML</small>
-        </div>
-      </section>
-
-      <section className="panel compact-panel">
-        <div className="selection-head">
-          <div>
-            <h2>Arquivos selecionados</h2>
-            <p id="fileCount">
-              {selectedFiles.length ? `${selectedFiles.length} arquivo(s) selecionado(s).` : 'Nenhum arquivo selecionado.'}
-            </p>
-          </div>
-          <button id="clearFiles" className="ghost danger" onClick={handleClearFiles}>
-            Limpar
-          </button>
-        </div>
-        <div id="fileList" className="file-list">
-          {selectedFiles.slice(0, 120).map((file, idx) => {
-            const name = file.split(/[\\/]/).pop();
-            const fileAnal = analysis.find(f => f.filePath === file);
-            const hasDup = fileAnal?.hasDuplicates;
-            const isCorr = correctedFiles.has(file);
-
-            let chipStyle = {};
-            let statusText = null;
-
-            if (hasDup) {
-              if (isCorr) {
-                chipStyle = { border: '1px solid #10b981', background: '#ecfdf5', color: '#065f46' };
-                statusText = <span style={{ color: '#059669', fontWeight: 'bold', marginLeft: '6px' }}>[Duplicidade corrigida]</span>;
-              } else {
-                chipStyle = { border: '1px solid #ef4444', background: '#fef2f2', color: '#991b1b' };
-                statusText = <span style={{ color: '#dc2626', fontWeight: 'bold', marginLeft: '6px' }}>[Comissão duplicada]</span>;
-              }
-            }
-
-            return (
-              <div key={idx} className="file-chip" style={{ ...chipStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} title={file}>
-                <span>{name}</span>
-                {statusText}
-              </div>
-            );
-          })}
-          {selectedFiles.length > 120 && (
-            <div className="file-chip">... e mais {selectedFiles.length - 120}</div>
-          )}
-        </div>
-      </section>
-
       <section className="panel compact-panel">
         <div className="output-row">
           <div className="field-grow">
@@ -407,12 +537,12 @@ export default function NewReport({ refreshHistory, addLog }) {
               readOnly 
             />
           </div>
-          <button id="btnOutput" className="secondary" onClick={handleSelectFolder}>
-            Escolher pasta
+          <button id="btnOutput" className="secondary" onClick={handleSelectFolder} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <FolderOpen size={14} /> Escolher pasta
           </button>
         </div>
         <div className="options-row">
-          <label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
             <input 
               id="sortAlpha" 
               type="checkbox" 
@@ -420,7 +550,7 @@ export default function NewReport({ refreshHistory, addLog }) {
               onChange={(e) => setSortAlpha(e.target.checked)} 
             /> Organizar vendedores em ordem alfabética
           </label>
-          <label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
             <input 
               id="convertNumbers" 
               type="checkbox" 
@@ -433,13 +563,16 @@ export default function NewReport({ refreshHistory, addLog }) {
 
       <section className="panel progress-panel">
         <div className="progress-head">
-          <strong id="progressTitle">{progress.title}</strong>
+          <strong id="progressTitle" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <RefreshCw size={14} className={processing ? 'animate-spin' : ''} />
+            {progress.title}
+          </strong>
           <b id="progressPercent">{progress.percent}%</b>
         </div>
         <div className="progress-track">
           <div id="progressFill" className="progress-fill" style={{ width: `${progress.percent}%` }}></div>
         </div>
-        <p id="progressText">{progress.message}</p>
+        <p id="progressText" className="muted" style={{ margin: 0, fontSize: '12px' }}>{progress.message}</p>
       </section>
 
       <div className="action-row">
@@ -448,14 +581,28 @@ export default function NewReport({ refreshHistory, addLog }) {
           className="primary large" 
           onClick={handleGenerate}
           disabled={processing}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}
         >
-          ▶ Processar arquivos
+          {status.type === 'error' ? <RefreshCw size={16} /> : <Play size={16} />}
+          {status.type === 'error' ? 'Tentar novamente' : 'Processar arquivos'}
         </button>
+        {processing && (
+          <button className="secondary danger" onClick={handleCancel}>
+            <X size={16} /> Cancelar com segurança
+          </button>
+        )}
       </div>
 
       {status.type && (
-        <div id="status" className={`status ${status.type}`}>
-          {status.message}
+        <div id="status" className={`status ${status.type}`} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {status.type === 'loading' ? (
+            <RefreshCw size={16} className="animate-spin" />
+          ) : status.type === 'success' ? (
+            <CheckCircle size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
+          <span>{status.message}</span>
         </div>
       )}
 
@@ -468,29 +615,29 @@ export default function NewReport({ refreshHistory, addLog }) {
             </div>
           </div>
           <div className="metric-grid result-metrics">
-            <article class="metric">
-              <span class="metric-icon cyan">♟</span>
+            <article className="metric">
+              <span className="metric-icon cyan"><Users size={20} /></span>
               <div>
                 <small>Vendedores</small>
                 <strong id="resultSellers">{resultSellers}</strong>
               </div>
             </article>
-            <article class="metric">
-              <span class="metric-icon green">✓</span>
+            <article className="metric">
+              <span className="metric-icon green"><CheckCircle size={20} /></span>
               <div>
                 <small>Corretoras</small>
                 <strong id="resultBrokers">{summary.length}</strong>
               </div>
             </article>
-            <article class="metric">
-              <span class="metric-icon amber">$</span>
+            <article className="metric">
+              <span className="metric-icon amber"><DollarSign size={20} /></span>
               <div>
                 <small>Valor total</small>
                 <strong id="resultValue">{formatBRL(resultTotalValue)}</strong>
               </div>
             </article>
-            <article class="metric">
-              <span class="metric-icon blue">▣</span>
+            <article className="metric">
+              <span className="metric-icon blue"><FileSpreadsheet size={20} /></span>
               <div>
                 <small>Arquivos de saída</small>
                 <strong id="resultFiles">{result.totalFiles || 0}</strong>

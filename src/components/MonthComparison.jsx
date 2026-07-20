@@ -97,21 +97,25 @@ function generateInsights(baseReport, cmpReport) {
   diffs.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
 
   for (const { corretora, diff, cmpItem, baseItem } of diffs.slice(0, 4)) {
+    const getVends = (item) => item.vendedoresDetalhes || (item.nomesVendedores || []).map(n => ({ nome: n, total: 0 }));
+    const baseVendsList = getVends(baseItem);
+    const cmpVendsList = getVends(cmpItem);
+
     if (diff > 0) {
       // Verifica novos vendedores que apareceram
-      const baseVends = new Map((baseItem.vendedoresDetalhes || []).map(v => [v.nome, v.total]));
-      const novosVends = (cmpItem.vendedoresDetalhes || []).filter(v => !baseVends.has(v.nome));
-      const aumentouVend = (cmpItem.vendedoresDetalhes || [])
-        .filter(v => baseVends.has(v.nome) && v.total > baseVends.get(v.nome))
-        .sort((a, b) => (b.total - baseVends.get(b.nome)) - (a.total - baseVends.get(a.nome)));
+      const baseVends = new Map(baseVendsList.map(v => [v?.nome || '', v?.total || 0]));
+      const novosVends = cmpVendsList.filter(v => !baseVends.has(v?.nome || ''));
+      const aumentouVend = cmpVendsList
+        .filter(v => baseVends.has(v?.nome || '') && (v?.total || 0) > baseVends.get(v?.nome || ''))
+        .sort((a, b) => ((b?.total || 0) - baseVends.get(b?.nome || '')) - ((a?.total || 0) - baseVends.get(a?.nome || '')));
 
       let detalhe = '';
       if (novosVends.length > 0) {
-        detalhe += ` Novos vendedores: ${novosVends.map(v => `${v.nome} (${formatBRL(v.total)})`).join(', ')}.`;
+        detalhe += ` Novos vendedores: ${novosVends.map(v => `${v?.nome} (${formatBRL(v?.total || 0)})`).join(', ')}.`;
       }
       if (aumentouVend.length > 0) {
         const top = aumentouVend[0];
-        detalhe += ` ${top.nome} aumentou ${formatBRL(top.total - baseVends.get(top.nome))}.`;
+        detalhe += ` ${top?.nome} aumentou ${formatBRL((top?.total || 0) - baseVends.get(top?.nome || ''))}.`;
       }
       insights.push({
         type: 'up',
@@ -119,27 +123,27 @@ function generateInsights(baseReport, cmpReport) {
       });
     } else {
       // Queda
-      const cmpVends = new Map((cmpItem.vendedoresDetalhes || []).map(v => [v.nome, v.total]));
-      const saidosVends = (baseItem.vendedoresDetalhes || []).filter(v => !cmpVends.has(v.nome));
-      const cairamVend = (cmpItem.vendedoresDetalhes || [])
+      const cmpVends = new Map(cmpVendsList.map(v => [v?.nome || '', v?.total || 0]));
+      const saidosVends = baseVendsList.filter(v => !cmpVends.has(v?.nome || ''));
+      const cairamVend = cmpVendsList
         .filter(v => {
-          const prev = (baseItem.vendedoresDetalhes || []).find(b => b.nome === v.nome);
-          return prev && v.total < prev.total;
+          const prev = baseVendsList.find(b => b?.nome === v?.nome);
+          return prev && (v?.total || 0) < (prev?.total || 0);
         })
         .sort((a, b) => {
-          const prevA = (baseItem.vendedoresDetalhes || []).find(x => x.nome === a.nome)?.total || 0;
-          const prevB = (baseItem.vendedoresDetalhes || []).find(x => x.nome === b.nome)?.total || 0;
-          return (a.total - prevA) - (b.total - prevB);
+          const prevA = baseVendsList.find(x => x?.nome === a?.nome)?.total || 0;
+          const prevB = baseVendsList.find(x => x?.nome === b?.nome)?.total || 0;
+          return ((a?.total || 0) - prevA) - ((b?.total || 0) - prevB);
         });
 
       let detalhe = '';
       if (saidosVends.length > 0) {
-        detalhe += ` Vendedor${saidosVends.length > 1 ? 'es' : ''} ausente${saidosVends.length > 1 ? 's' : ''}: ${saidosVends.map(v => v.nome).join(', ')}.`;
+        detalhe += ` Vendedor${saidosVends.length > 1 ? 'es' : ''} ausente${saidosVends.length > 1 ? 's' : ''}: ${saidosVends.map(v => v?.nome).join(', ')}.`;
       }
       if (cairamVend.length > 0) {
         const top = cairamVend[0];
-        const prev = (baseItem.vendedoresDetalhes || []).find(x => x.nome === top.nome)?.total || 0;
-        detalhe += ` ${top.nome} caiu ${formatBRL(Math.abs(top.total - prev))}.`;
+        const prev = baseVendsList.find(x => x?.nome === top?.nome)?.total || 0;
+        detalhe += ` ${top?.nome} caiu ${formatBRL(Math.abs((top?.total || 0) - prev))}.`;
       }
       insights.push({
         type: 'down',

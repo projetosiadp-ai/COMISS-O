@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  FileSpreadsheet, Upload, Download, RefreshCw, FolderOpen, 
+  CheckCircle, AlertCircle, Play, Sparkles, Building, Users
+} from 'lucide-react';
 import { formatBRL } from '../App';
 
 export default function GeneralReport({ refreshHistory, addLog }) {
@@ -18,6 +22,12 @@ export default function GeneralReport({ refreshHistory, addLog }) {
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
   const [dragOver, setDragOver] = useState(false);
+
+  useEffect(() => {
+    window.api?.getAppSettings?.().then(settings => {
+      if (settings?.defaultOutputFolder) setOutputFolder(settings.defaultOutputFolder);
+    }).catch(() => {});
+  }, []);
 
   const handleSelectFiles = async () => {
     if (window.api && window.api.selectGeneralFiles) {
@@ -48,10 +58,48 @@ export default function GeneralReport({ refreshHistory, addLog }) {
         res.errors.forEach(err => log('error', err));
       }
 
-      // Agrupa os blocos por corretora no frontend
+      // Carrega config de corretoras para normalizar nomes no frontend
+      let corretorasConfig = {};
+      try {
+        corretorasConfig = await window.api.getCorretorasConfig?.() || {};
+      } catch (_) {}
+
+      // Normaliza o nome da corretora usando a config de aliases
+      const normalizeText = (v) => String(v || '')
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .replace(/&/g, ' E ')
+        .replace(/[^A-Z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const normalizarNome = (nome) => {
+        const original = String(nome || '').trim();
+        const base = normalizeText(original);
+        if (!base || base.includes('NAO IDENTIFICADA')) return 'Corretora não identificada';
+
+        for (const [nomePrincipal, aliases] of Object.entries(corretorasConfig)) {
+          const principalNorm = normalizeText(nomePrincipal);
+          const aliasList = Array.isArray(aliases) ? aliases : [];
+
+          if (base === principalNorm || base.startsWith(principalNorm) || principalNorm.startsWith(base)) {
+            return nomePrincipal;
+          }
+          for (const alias of aliasList) {
+            const aliasNorm = normalizeText(alias);
+            if (!aliasNorm) continue;
+            if (base === aliasNorm || base.startsWith(aliasNorm) || aliasNorm.startsWith(base)) {
+              return nomePrincipal;
+            }
+          }
+        }
+        return original;
+      };
+
+      // Agrupa os blocos por corretora normalizada no frontend
       const groupedMap = {};
       for (const b of (res.blocks || [])) {
-        const cName = b.corretora;
+        const cName = normalizarNome(b.corretora);
         if (!groupedMap[cName]) {
           groupedMap[cName] = {
             corretora: cName,
@@ -65,7 +113,6 @@ export default function GeneralReport({ refreshHistory, addLog }) {
           };
         }
         groupedMap[cName].totalComissao += Number(b.total || 0);
-        // Se houver algum bloco PJ nas planilhas, define a corretora como PJ por padrão
         if (b.category === 'PJ') {
           groupedMap[cName].category = 'PJ';
         }
@@ -112,6 +159,7 @@ export default function GeneralReport({ refreshHistory, addLog }) {
       const folder = await window.api.selectOutputFolder();
       if (folder) {
         setOutputFolder(folder);
+        window.api.saveAppSettings?.({ defaultOutputFolder: folder }).catch(() => {});
         log('info', `Pasta de destino selecionada: ${folder}`);
       }
     }
@@ -144,7 +192,6 @@ export default function GeneralReport({ refreshHistory, addLog }) {
     log('info', `Iniciando consolidação do Relatório Geral de ${reportMonth}...`);
 
     try {
-      // Converte valores vazios para 0 ao enviar para o backend
       const payloadData = corretoras.map(c => ({
         corretora: c.corretora,
         totalComissao: Number(c.totalComissao || 0),
@@ -181,8 +228,42 @@ export default function GeneralReport({ refreshHistory, addLog }) {
     }
   };
 
-  // Helper para renderizar os inputs numéricos de forma consistente
-  const renderNumericInput = (index, field, value) => {
+  // Memoized total calculations for sticky footer
+  const totals = useMemo(() => {
+    let commission = 0;
+    let net = 0;
+    corretoras.forEach(c => {
+      const tc = Number(c.totalComissao || 0);
+      const dif = Number(c.diferencas || 0);
+      const mt = Number(c.meta || 0);
+      const tx = Number(c.descTaxa || 0);
+      const lf = Number(c.lancamentosFuturos || 0);
+      const irVal = Number(c.ir || 0);
+      
+      commission += tc;
+      net += (tc + dif + mt - tx + lf - irVal);
+    });
+    return { commission, net };
+  }, [corretoras]);
+
+  // Decides input border highlights mapped to HSL tokens
+  const getInputBorderStyle = (value, inputType) => {
+    const val = Number(value || 0);
+    if (val === 0) return { borderColor: 'var(--line)' };
+    
+    if (inputType === 'bonus') {
+      // Diferenças, Meta, Lançamentos Futuros
+      return { borderColor: val > 0 ? 'var(--green)' : 'var(--red)', borderWidth: '1.5px' };
+    } else if (inputType === 'deduction') {
+      // Desc Taxa, IR
+      return { borderColor: val > 0 ? 'var(--red)' : 'var(--green)', borderWidth: '1.5px' };
+    }
+    return { borderColor: 'var(--line)' };
+  };
+
+  // Helper para renderizar os inputs numéricos de forma consistente com realce condicional
+  const renderNumericInput = (index, field, value, inputType) => {
+    const borderStyle = getInputBorderStyle(value, inputType);
     return (
       <input
         type="number"
@@ -193,12 +274,16 @@ export default function GeneralReport({ refreshHistory, addLog }) {
         style={{
           width: '92px',
           height: '32px',
-          border: '1px solid #cbd5e1',
           borderRadius: '6px',
-          padding: '0 6px',
+          padding: '0 8px',
           textAlign: 'right',
           fontSize: '12px',
-          outline: 'none'
+          outline: 'none',
+          border: '1px solid',
+          transition: 'all 0.15s ease',
+          background: 'var(--panel)',
+          color: 'var(--text)',
+          ...borderStyle
         }}
       />
     );
@@ -237,7 +322,7 @@ export default function GeneralReport({ refreshHistory, addLog }) {
                 onClick={handleSelectFiles}
                 style={{ cursor: 'pointer' }}
               >
-                <div className="upload-icon">↑</div>
+                <div className="upload-icon"><Upload size={24} /></div>
                 <strong>Selecione ou Arraste os arquivos consolidados</strong>
                 <small>Clique para escolher</small>
               </div>
@@ -248,7 +333,8 @@ export default function GeneralReport({ refreshHistory, addLog }) {
                 <strong style={{ fontSize: '13px', color: 'var(--muted)' }}>Arquivos importados:</strong>
                 <div className="file-list" style={{ marginTop: '5px' }}>
                   {selectedFiles.map((f, idx) => (
-                    <div key={idx} className="file-chip" title={f}>
+                    <div key={idx} className="file-chip" title={f} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                      <FileSpreadsheet size={12} style={{ color: 'var(--green)' }} />
                       {f.split(/[\\/]/).pop()}
                     </div>
                   ))}
@@ -260,22 +346,31 @@ export default function GeneralReport({ refreshHistory, addLog }) {
       </div>
 
       {status.message && (
-        <div className={`status ${status.type}`}>
-          {status.message}
-          {status.type === 'success' && status.message.includes('Caminho:') && (
-            <button
-              className="secondary"
-              onClick={() => handleOpenFile(status.message.split('Caminho: ')[1].trim())}
-              style={{ marginTop: '10px', display: 'block' }}
-            >
-              Abrir Planilha Consolidada
-            </button>
+        <div className={`status ${status.type}`} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {status.type === 'loading' ? (
+            <RefreshCw size={16} className="animate-spin" />
+          ) : status.type === 'success' ? (
+            <CheckCircle size={16} />
+          ) : (
+            <AlertCircle size={16} />
           )}
+          <div style={{ flex: 1 }}>
+            {status.message}
+            {status.type === 'success' && status.message.includes('Caminho:') && (
+              <button
+                className="secondary"
+                onClick={() => handleOpenFile(status.message.split('Caminho: ')[1].trim())}
+                style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <FolderOpen size={13} /> Abrir Planilha Consolidada
+              </button>
+            )}
+          </div>
         </div>
       )}
 
       {corretoras.length > 0 && (
-        <div className="panel">
+        <div className="panel" style={{ paddingBottom: 0, overflow: 'hidden' }}>
           <div className="panel-head" style={{ marginBottom: '15px' }}>
             <div>
               <h2>Revisar Corretoras e Ajustes</h2>
@@ -283,36 +378,37 @@ export default function GeneralReport({ refreshHistory, addLog }) {
             </div>
           </div>
 
-          <div style={{ overflowX: 'auto' }}>
-            <table className="summary-table table" style={{ width: '100%', minWidth: '980px' }}>
+          <div style={{ overflowX: 'auto', maxHeight: '450px', position: 'relative' }}>
+            <table className="summary-table table" style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse' }}>
               <thead>
-                <tr>
-                  <th>Corretora</th>
-                  <th>Total Comissões</th>
-                  <th style={{ width: '110px' }}>Tipo</th>
-                  <th style={{ textAlign: 'right', width: '106px' }}>Diferenças (R$)</th>
-                  <th style={{ textAlign: 'right', width: '106px' }}>Meta (R$)</th>
-                  <th style={{ textAlign: 'right', width: '106px' }}>Desc Taxa (R$)</th>
-                  <th style={{ textAlign: 'right', width: '106px' }}>Lanç. Futuros (R$)</th>
-                  <th style={{ textAlign: 'right', width: '106px' }}>IR (R$)</th>
+                <tr style={{ position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 2, borderBottom: '2px solid var(--line)' }}>
+                  <th style={{ padding: '12px 8px', textAlign: 'left' }}>Corretora</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'left' }}>Total Comissões</th>
+                  <th style={{ padding: '12px 8px', width: '110px', textAlign: 'left' }}>Tipo</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Diferenças (R$)</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Meta (R$)</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Desc Taxa (R$)</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Lanç. Futuros (R$)</th>
+                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>IR (R$)</th>
                 </tr>
               </thead>
               <tbody>
                 {corretoras.map((c, idx) => (
-                  <tr key={idx}>
-                    <td style={{ fontWeight: '700', fontSize: '13px' }}>{c.corretora}</td>
-                    <td style={{ fontWeight: '700', color: '#031f49' }}>{formatBRL(c.totalComissao)}</td>
-                    <td>
+                  <tr key={idx} style={{ borderBottom: '1px solid var(--line)' }}>
+                    <td style={{ padding: '10px 8px', fontWeight: '700', fontSize: '13px' }}>{c.corretora}</td>
+                    <td style={{ padding: '10px 8px', fontWeight: '700', color: 'var(--text)' }}>{formatBRL(c.totalComissao)}</td>
+                    <td style={{ padding: '10px 8px' }}>
                       <select
                         value={c.category}
                         onChange={(e) => handleFieldChange(idx, 'category', e.target.value)}
                         style={{
                           width: '100%',
                           height: '32px',
-                          border: '1px solid #cbd5e1',
+                          border: '1px solid var(--line)',
                           borderRadius: '6px',
                           padding: '0 4px',
-                          background: '#fff',
+                          background: 'var(--panel)',
+                          color: 'var(--text)',
                           outline: 'none',
                           fontSize: '12px',
                           fontWeight: '600'
@@ -322,18 +418,43 @@ export default function GeneralReport({ refreshHistory, addLog }) {
                         <option value="PJ">PJ</option>
                       </select>
                     </td>
-                    <td style={{ textAlign: 'right' }}>{renderNumericInput(idx, 'diferencas', c.diferencas)}</td>
-                    <td style={{ textAlign: 'right' }}>{renderNumericInput(idx, 'meta', c.meta)}</td>
-                    <td style={{ textAlign: 'right' }}>{renderNumericInput(idx, 'descTaxa', c.descTaxa)}</td>
-                    <td style={{ textAlign: 'right' }}>{renderNumericInput(idx, 'lancamentosFuturos', c.lancamentosFuturos)}</td>
-                    <td style={{ textAlign: 'right' }}>{renderNumericInput(idx, 'ir', c.ir)}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'diferencas', c.diferencas, 'bonus')}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'meta', c.meta, 'bonus')}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'descTaxa', c.descTaxa, 'deduction')}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'lancamentosFuturos', c.lancamentosFuturos, 'bonus')}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'ir', c.ir, 'deduction')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="output-row" style={{ marginTop: '22px', borderTop: '1px solid var(--line)', paddingTop: '15px' }}>
+          {/* Sticky Net Total Footer */}
+          <div className="table-sticky-footer" style={{
+            position: 'sticky',
+            bottom: 0,
+            background: 'var(--panel)',
+            borderTop: '2px solid var(--line)',
+            padding: '16px 20px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            boxShadow: '0 -4px 12px rgba(0,0,0,0.06)',
+            zIndex: 3,
+            fontWeight: '700',
+            fontSize: '13px',
+            marginTop: '15px'
+          }}>
+            <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Sparkles size={14} className="text-amber" /> Resumo Consolidado:
+            </span>
+            <div style={{ display: 'flex', gap: '24px' }}>
+              <span>Bruto: <span style={{ color: 'var(--text)' }}>{formatBRL(totals.commission)}</span></span>
+              <span>Líquido Geral: <span style={{ color: 'var(--primary)', fontSize: '15px' }}>{formatBRL(totals.net)}</span></span>
+            </div>
+          </div>
+
+          <div className="output-row" style={{ marginTop: '22px', borderTop: '1px solid var(--line)', paddingTop: '15px', paddingBottom: '15px' }}>
             <div className="field-grow">
               <label>Pasta de Destino</label>
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -345,20 +466,21 @@ export default function GeneralReport({ refreshHistory, addLog }) {
                   onClick={handleSelectFolder}
                   style={{ flex: 1 }}
                 />
-                <button className="ghost" onClick={handleSelectFolder}>
-                  Escolher Pasta
+                <button className="secondary" onClick={handleSelectFolder} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FolderOpen size={14} /> Escolher Pasta
                 </button>
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '18px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: '22px' }}>
             <button
               className="primary large"
               disabled={generating || parsing}
               onClick={handleGenerate}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
             >
-              {generating ? 'Consolidando...' : 'Gerar Planilha Geral'}
+              <Play size={14} /> {generating ? 'Consolidando...' : 'Gerar Planilha Geral'}
             </button>
           </div>
         </div>

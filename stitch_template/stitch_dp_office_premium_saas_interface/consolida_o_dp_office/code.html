@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="pt-br"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DP Office - Consolidação (Relatório Geral)</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Outfit:wght@500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "tertiary-container": "#007852",
+                    "primary-fixed": "#d8e2ff",
+                    "surface-container-high": "#222a3d",
+                    "tertiary": "#4edea3",
+                    "error": "#ffb4ab",
+                    "on-tertiary-fixed": "#002113",
+                    "on-error-container": "#ffdad6",
+                    "on-secondary-container": "#9ab5f3",
+                    "surface-container": "#171f33",
+                    "on-primary-fixed-variant": "#004396",
+                    "tertiary-fixed": "#6ffbbe",
+                    "on-tertiary-container": "#8fffc9",
+                    "on-primary-container": "#e3e9ff",
+                    "secondary-container": "#29457c",
+                    "background": "#0b1326",
+                    "inverse-on-surface": "#283044",
+                    "inverse-surface": "#dae2fd",
+                    "on-surface-variant": "#c2c6d6",
+                    "surface-dim": "#0b1326",
+                    "primary-container": "#0564d8",
+                    "on-background": "#dae2fd",
+                    "outline-variant": "#424754",
+                    "on-secondary": "#0d2e64",
+                    "secondary-fixed": "#d9e2ff",
+                    "error-container": "#93000a",
+                    "surface-tint": "#aec6ff",
+                    "on-primary": "#002e6b",
+                    "on-tertiary": "#003824",
+                    "secondary": "#afc6ff",
+                    "on-primary-fixed": "#001a42",
+                    "surface-container-highest": "#2d3449",
+                    "tertiary-fixed-dim": "#4edea3",
+                    "surface-container-lowest": "#060e20",
+                    "on-secondary-fixed-variant": "#29457c",
+                    "on-tertiary-fixed-variant": "#005236",
+                    "on-surface": "#dae2fd",
+                    "surface": "#0b1326",
+                    "outline": "#8c909f",
+                    "surface-bright": "#31394d",
+                    "primary": "#aec6ff",
+                    "primary-fixed-dim": "#aec6ff",
+                    "surface-variant": "#2d3449",
+                    "secondary-fixed-dim": "#afc6ff",
+                    "on-secondary-fixed": "#001a43",
+                    "on-error": "#690005",
+                    "inverse-primary": "#005ac4",
+                    "surface-container-low": "#131b2e"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "margin-desktop": "40px",
+                    "gutter": "24px",
+                    "margin-mobile": "16px",
+                    "unit": "4px",
+                    "container-max": "1440px",
+                    "stack-md": "16px",
+                    "stack-sm": "8px",
+                    "stack-lg": "32px"
+            },
+            "fontFamily": {
+                    "headline-lg-mobile": ["Outfit"],
+                    "headline-xl": ["Outfit"],
+                    "headline-md": ["Outfit"],
+                    "label-md": ["Inter"],
+                    "label-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "body-sm": ["Inter"],
+                    "headline-lg": ["Outfit"],
+                    "body-lg": ["Inter"]
+            },
+            "fontSize": {
+                    "headline-lg-mobile": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "headline-xl": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "500"}],
+                    "label-md": ["14px", {"lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "600"}],
+                    "label-sm": ["12px", {"lineHeight": "14px", "letterSpacing": "0.04em", "fontWeight": "500"}],
+                    "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}]
+            }
+          },
+        },
+      }
+    </script>
+<style>
+        body {
+            background-color: #0b1326;
+            color: #dae2fd;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid #1e293b;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .btn-gradient-blue {
+            background: linear-gradient(135deg, #0564d8 0%, #002e6b 100%);
+            transition: all 0.3s ease;
+        }
+        .btn-gradient-blue:hover {
+            box-shadow: 0 0 20px rgba(5, 100, 216, 0.4);
+            transform: translateY(-1px);
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="antialiased overflow-hidden">
+<!-- SideNavBar (Authority: JSON) -->
+<aside class="w-[280px] h-screen fixed left-0 top-0 border-r border-outline-variant bg-surface-container-lowest dark:bg-surface-container-lowest z-50">
+<div class="flex flex-col justify-between h-full p-6">
+<div>
+<div class="flex items-center gap-3 mb-10 px-2">
+<div class="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary text-[20px]" style="font-variation-settings: 'FILL' 1;">layers</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-on-surface dark:text-on-surface leading-tight">DP Office</h1>
+<p class="font-body-sm text-body-sm text-on-surface-variant">v2.4.0-stable</p>
+</div>
+</div>
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-container-high/50 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label-md text-label-md">Dashboard</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-container-high/50 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="upload_file">upload_file</span>
+<span class="font-label-md text-label-md">Import</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface transition-colors duration-200 hover:bg-surface-container-high/50 rounded-lg" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="font-label-md text-label-md">History</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-primary bg-secondary-container/30 dark:bg-secondary-container/20 rounded-lg border-l-2 border-primary" href="#">
+<span class="material-symbols-outlined" data-icon="layers" style="font-variation-settings: 'FILL' 1;">layers</span>
+<span class="font-label-md text-label-md">Consolidation</span>
+</a>
+</nav>
+</div>
+<div class="space-y-6">
+<button class="w-full py-3 px-4 rounded-xl font-label-md text-label-md bg-primary text-on-primary hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                    New Commission
+                </button>
+<div class="pt-6 border-t border-outline-variant space-y-1">
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="help_outline">help_outline</span>
+<span class="font-label-md text-label-md">Support</span>
+</a>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="ml-[280px] h-screen overflow-y-auto no-scrollbar relative flex flex-col">
+<!-- TopNavBar (Authority: JSON) -->
+<header class="sticky top-0 z-40 w-full h-16 bg-background/80 dark:bg-background/80 backdrop-blur-xl border-b border-outline-variant shadow-sm dark:shadow-none">
+<div class="flex justify-between items-center h-full px-8 max-w-[1440px] mx-auto">
+<div class="flex items-center gap-8">
+<div class="relative w-64">
+<span class="absolute inset-y-0 left-3 flex items-center text-outline pointer-events-none">
+<span class="material-symbols-outlined text-[20px]">search</span>
+</span>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full pl-10 pr-4 py-1.5 text-sm focus:ring-1 focus:ring-primary focus:border-primary outline-none text-on-surface" placeholder="Search data..." type="text"/>
+</div>
+<nav class="flex gap-6">
+<a class="text-on-surface-variant hover:text-on-surface font-medium pb-5 translate-y-2 text-label-sm font-label-sm" href="#">Overview</a>
+<a class="text-on-surface-variant hover:text-on-surface font-medium pb-5 translate-y-2 text-label-sm font-label-sm" href="#">Analytics</a>
+<a class="text-primary font-semibold border-b-2 border-primary pb-5 translate-y-2 text-label-sm font-label-sm" href="#">Reports</a>
+</nav>
+</div>
+<div class="flex items-center gap-4">
+<button class="px-4 py-1.5 rounded-lg border border-outline-variant font-label-sm text-label-sm text-on-surface hover:bg-surface-container-high transition-colors">Filter</button>
+<button class="px-4 py-1.5 rounded-lg bg-primary text-on-primary font-label-sm text-label-sm hover:opacity-90 transition-colors">Export</button>
+<div class="h-6 w-px bg-outline-variant mx-2"></div>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-surface-variant flex items-center justify-center border border-outline-variant overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a corporate executive for a financial dashboard profile, soft studio lighting, neutral dark background, 8k resolution, modern professional aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBX4hDKZYH4FS4S434EGYH0Cn0DaTx2l9gnXOgXF7won7FHZVwyFppF_v-yOrDY5L7r51gQX68Sg0W7epWcimzpmxDZupP6WeQel2fEwk8WwoTY8-bDBGHP5tLlq4xb1iXEx22N6XRbAkOpKaW_8h1dctmlRdAbnsV1R30LHbnNKznC8HZHqNCofHGvyuoMJjHx7sO3iODtbQXdX4cg0OUoF5lGGiqlC3pM15V7rphb9HEVb97njqDv0Q"/>
+</button>
+</div>
+</div>
+</header>
+<!-- Content Area -->
+<div class="flex-1 p-8 max-w-[1440px] mx-auto w-full">
+<div class="mb-8">
+<h2 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Relatório Geral</h2>
+<p class="font-body-md text-body-md text-on-surface-variant mt-1">Consolidação de comissões e ajustes manuais por corretora.</p>
+</div>
+<!-- Bento Grid - Key Metrics -->
+<div class="grid grid-cols-12 gap-6 mb-8">
+<div class="col-span-3 glass-panel p-5 rounded-2xl">
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-2">TOTAL BRUTO</p>
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface">R$ 1.240.500,00</h3>
+<div class="mt-2 flex items-center gap-1 text-tertiary">
+<span class="material-symbols-outlined text-[16px]">trending_up</span>
+<span class="text-xs font-medium">+12.4% vs prev month</span>
+</div>
+</div>
+<div class="col-span-3 glass-panel p-5 rounded-2xl">
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-2">AJUSTES TOTAIS</p>
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface">R$ -12.340,50</h3>
+<div class="mt-2 flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">info</span>
+<span class="text-xs font-medium">8 adjustment types pending</span>
+</div>
+</div>
+<div class="col-span-6 glass-panel p-5 rounded-2xl relative overflow-hidden flex items-center justify-between">
+<div>
+<p class="font-label-sm text-label-sm text-on-surface-variant mb-2">STATUS DA CONSOLIDAÇÃO</p>
+<div class="flex items-center gap-3 mb-1">
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface">92.4% Concluído</h3>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-container/20 text-tertiary text-[10px] font-bold uppercase tracking-wider border border-tertiary/20">Em progresso</span>
+</div>
+<div class="w-full bg-surface-container-highest h-2 rounded-full mt-3">
+<div class="bg-primary h-2 rounded-full w-[92.4%]"></div>
+</div>
+</div>
+<div class="w-24 h-24 opacity-10">
+<span class="material-symbols-outlined text-[96px]">query_stats</span>
+</div>
+</div>
+</div>
+<!-- Detailed Review Table -->
+<div class="glass-panel rounded-2xl overflow-hidden mb-8">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high/50 border-b border-outline-variant">
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Nome da Corretora</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Comissões (R$)</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Tipo</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Differences</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Goal</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Fee Disc.</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">IR</th>
+<th class="px-6 py-4 font-label-sm text-label-sm text-on-surface-variant uppercase tracking-wider">Net Total</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/30">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-high/30 transition-colors">
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface font-semibold">XP Investimentos</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface">450.000,00</td>
+<td class="px-6 py-4">
+<select class="bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface outline-none focus:ring-1 focus:ring-primary">
+<option>PJ</option>
+<option>PF</option>
+</select>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-16 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="1.5%" type="text"/>
+</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-primary font-bold">443.250,00</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-high/30 transition-colors">
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface font-semibold">BTG Pactual</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface">380.000,00</td>
+<td class="px-6 py-4">
+<select class="bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface outline-none focus:ring-1 focus:ring-primary">
+<option>PF</option>
+<option>PJ</option>
+</select>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-error text-right focus:ring-1 focus:ring-primary outline-none" type="text" value="-2.400,00"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-16 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="27.5%" type="text"/>
+</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-primary font-bold">273.760,00</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-high/30 transition-colors">
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface font-semibold">Guide Investimentos</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface">125.500,00</td>
+<td class="px-6 py-4">
+<select class="bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface outline-none focus:ring-1 focus:ring-primary">
+<option>PJ</option>
+<option>PF</option>
+</select>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-tertiary text-right focus:ring-1 focus:ring-primary outline-none" type="text" value="5.000,00"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-error text-right focus:ring-1 focus:ring-primary outline-none" type="text" value="-450,00"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-16 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" type="text" value="0%"/>
+</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-primary font-bold">130.050,00</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-high/30 transition-colors">
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface font-semibold">Genial Investimentos</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-on-surface">285.000,00</td>
+<td class="px-6 py-4">
+<select class="bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface outline-none focus:ring-1 focus:ring-primary">
+<option>PJ</option>
+<option>PF</option>
+</select>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-20 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" placeholder="0,00" type="text"/>
+</td>
+<td class="px-4 py-4">
+<input class="w-16 bg-surface-container-low border border-outline-variant rounded-lg py-1 px-2 text-xs text-on-surface text-right focus:ring-1 focus:ring-primary outline-none" type="text" value="1.5%"/>
+</td>
+<td class="px-6 py-4 font-body-sm text-body-sm text-primary font-bold">280.725,00</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Footer Section with Destination Folder and Main Action -->
+<div class="flex flex-col md:flex-row gap-6 items-end justify-between glass-panel p-8 rounded-2xl">
+<div class="flex-1 w-full max-w-xl">
+<label class="block font-label-md text-label-md text-on-surface-variant mb-3">Pasta de Destino</label>
+<div class="flex gap-3">
+<div class="relative flex-1">
+<span class="absolute inset-y-0 left-4 flex items-center text-on-surface-variant pointer-events-none">
+<span class="material-symbols-outlined text-[18px]">folder_open</span>
+</span>
+<input class="w-full bg-surface-container-high border border-outline-variant rounded-xl pl-12 pr-4 py-3 text-sm focus:ring-2 focus:ring-primary outline-none text-on-surface" type="text" value="C:/Users/financeiro/Dropbox/DP_Office/Relatorios/2024/Geral"/>
+</div>
+<button class="px-6 py-3 rounded-xl border border-outline-variant font-label-md text-label-md text-on-surface hover:bg-surface-container-high transition-colors flex items-center gap-2">
+                            Browse
+                        </button>
+</div>
+<p class="mt-2 text-[11px] text-on-surface-variant italic">A planilha final será salva automaticamente como "Relatorio_Geral_Consolidado_MAR24.xlsx"</p>
+</div>
+<div class="flex flex-col items-center md:items-end gap-4 w-full md:w-auto">
+<div class="flex items-center gap-2 text-tertiary">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+<span class="text-xs font-semibold">Tudo pronto para exportar</span>
+</div>
+<button class="btn-gradient-blue w-full md:w-80 h-16 rounded-2xl flex items-center justify-center gap-4 text-white font-headline-md text-[18px] font-bold shadow-lg">
+<span class="material-symbols-outlined text-[24px]">table_view</span>
+                        Gerar Planilha Geral
+                    </button>
+</div>
+</div>
+</div>
+<!-- Background Decorative Elements -->
+<div class="fixed bottom-0 right-0 p-12 -z-10 opacity-20">
+<span class="material-symbols-outlined text-[400px] text-primary rotate-12 select-none pointer-events-none">account_balance_wallet</span>
+</div>
+</main>
+<script>
+        // Micro-interaction for input highlighting
+        document.querySelectorAll('input[type="text"]').forEach(input => {
+            input.addEventListener('focus', function() {
+                this.parentElement.classList.add('scale-[1.02]');
+                this.parentElement.classList.add('duration-200');
+            });
+            input.addEventListener('blur', function() {
+                this.parentElement.classList.remove('scale-[1.02]');
+            });
+        });
+
+        // Numeric validation & Formatting (simplified)
+        document.querySelectorAll('input.text-right').forEach(input => {
+            input.addEventListener('input', function() {
+                let value = this.value.replace(/[^0-9,-]/g, '');
+                this.value = value;
+                
+                // Color coding based on value
+                if (value.startsWith('-')) {
+                    this.classList.add('text-error');
+                    this.classList.remove('text-tertiary');
+                } else if (value !== '0,00' && value !== '' && !value.startsWith('0')) {
+                    this.classList.add('text-tertiary');
+                    this.classList.remove('text-error');
+                } else {
+                    this.classList.remove('text-tertiary', 'text-error');
+                }
+            });
+        });
+    </script>
+</body></html>
