@@ -5,6 +5,8 @@ import {
   HelpCircle, AlertCircle, CheckCircle, RefreshCw
 } from 'lucide-react';
 
+import { getCorretorasConfig, saveCorretorasConfig } from '../services/configService';
+
 export default function ConfigCorretoras({ addLog }) {
   const [config, setConfig] = useState({});
   const [loading, setLoading] = useState(true);
@@ -32,15 +34,13 @@ export default function ConfigCorretoras({ addLog }) {
   const loadConfig = async () => {
     setLoading(true);
     try {
-      if (window.api && window.api.getCorretorasConfig) {
-        const data = await window.api.getCorretorasConfig();
-        setConfig(data || {});
-        
-        // Select first broker if available
-        const keys = Object.keys(data || {});
-        if (keys.length > 0 && !selectedBroker) {
-          setSelectedBroker(keys[0]);
-        }
+      const data = await getCorretorasConfig();
+      setConfig(data || {});
+      
+      // Select first broker if available
+      const keys = Object.keys(data || {});
+      if (keys.length > 0 && !selectedBroker) {
+        setSelectedBroker(keys[0]);
       }
     } catch (err) {
       log('error', 'Erro ao carregar configurações de corretoras: ' + err.message);
@@ -55,13 +55,11 @@ export default function ConfigCorretoras({ addLog }) {
 
   const handleSave = async (updatedConfig) => {
     try {
-      if (window.api && window.api.saveCorretorasConfig) {
-        await window.api.saveCorretorasConfig(updatedConfig);
-        setConfig(updatedConfig);
-        setStatus({ type: 'success', message: 'Configurações de corretoras salvas com sucesso!' });
-        log('success', 'Configurações de corretoras salvas e espelhadas para o sistema.');
-        setTimeout(() => setStatus({ type: '', message: '' }), 3000);
-      }
+      await saveCorretorasConfig(updatedConfig);
+      setConfig(updatedConfig);
+      setStatus({ type: 'success', message: 'Configurações de corretoras salvas com sucesso!' });
+      log('success', 'Configurações de corretoras salvas e espelhadas para o sistema.');
+      setTimeout(() => setStatus({ type: '', message: '' }), 3000);
     } catch (err) {
       setStatus({ type: 'error', message: 'Erro ao salvar configurações: ' + err.message });
       log('error', 'Falha ao salvar corretoras: ' + err.message);

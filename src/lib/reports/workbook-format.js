@@ -1,8 +1,8 @@
-const {
+import {
   normalizeBaseText, getText, decodeHtml, parseBrazilNumber,
   parseBrazilCurrency, formatNumberBR
-} = require('../core/text.cjs');
-const { getLastUsedRow, getLastUsedCol } = require('./input-reader.cjs');
+} from '../core/text.js';
+import { getLastUsedRow, getLastUsedCol } from './input-reader.js';
 
 function copyCell(sourceCell, targetCell) {
   targetCell.value = sourceCell.value;
@@ -181,7 +181,7 @@ function consolidateCommissionTotalsInWorksheet(worksheet) {
   return { found: true, total, count: totals.length };
 }
 
-module.exports = {
+export {
   copyCell,
   convertCellToNumberIfNeeded,
   convertBlockStringsToNumbers,

@@ -20,10 +20,7 @@ function ReportCard({ report, onDelete, isAdmin, onTrashReport }) {
   const [expandedBroker, setExpandedBroker] = useState(null);
 
   const handleOpenPath = async () => {
-    if (window.api?.openPath) {
-      try { await window.api.openPath(report.outputRoot); }
-      catch (err) { alert('Erro ao abrir pasta: ' + err.message); }
-    }
+    // Web environment: no local path opening
   };
 
   const handleDelete = async () => {
@@ -62,9 +59,7 @@ function ReportCard({ report, onDelete, isAdmin, onTrashReport }) {
           </div>
         </div>
         <div className="report-card-actions">
-          <button className="ghost" onClick={handleOpenPath} title="Abrir pasta" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <FolderOpen size={12} /> Pasta
-          </button>
+
           <button
             className={`ghost ${expanded ? 'active' : ''}`}
             onClick={() => setExpanded(v => !v)}

@@ -1,4 +1,4 @@
-const path = require('node:path');
+// Removed node:path
 
 function normalizeBaseText(value) {
   return String(value || '')
@@ -76,7 +76,12 @@ function parseVendedorCorretora(rawTitle, filePath = '') {
   }
 
   if ((!corretora || corretora === 'Corretora não identificada') && filePath) {
-    const base = path.basename(filePath, path.extname(filePath))
+    let base = filePath;
+    if (filePath) {
+      // simple basename fallback for browser
+      base = filePath.split(/[\\/]/).pop().split('.')[0] || filePath;
+    }
+    base = base
       .replace(/[_]+/g, ' ')
       .replace(/[–—]/g, '-')
       .replace(/\s*-\s*/g, ' - ')
@@ -134,7 +139,7 @@ function formatBRL(value) {
   return Number(value || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-module.exports = {
+export {
   normalizeBaseText,
   safeFileName,
   decodeHtml,

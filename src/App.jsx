@@ -11,8 +11,8 @@ import GeneralReport from './pages/GeneralReport';
 import ConfigCorretoras from './pages/ConfigCorretoras';
 import AuthScreen from './auth/AuthScreen';
 import { useAuth } from './auth/AuthContext';
-import { subscribeReports, syncReport } from './services/cloudReports';
-import { trashReport as trashCloudReport } from './services/cloudReports';
+import { subscribeReports, syncReport, trashReport as trashCloudReport } from './services/cloudReports';
+import { getSavedReports, deleteReport as deleteLocalReport } from './services/historyService';
 import UserManagement from './pages/UserManagement';
 import Trash from './pages/Trash';
 import AuditLog from './pages/AuditLog';
@@ -89,10 +89,8 @@ export default function App() {
   const refreshHistory = useCallback(async () => {
     setLoadingHistory(true);
     try {
-      if (window.api && window.api.listSavedReports) {
-        const list = await window.api.listSavedReports();
-        setLocalReports(list || []);
-      }
+      const list = await getSavedReports();
+      setLocalReports(list || []);
     } catch (err) {
       console.error('Erro ao listar relatórios salvos:', err);
       addLog('error', `Falha ao carregar histórico: ${err.message}`);
@@ -125,7 +123,7 @@ export default function App() {
 
   const handleTrashReport = useCallback(async reportId => {
     if (!session.isAdmin) throw new Error('Somente Administradores podem mover relatórios para a lixeira.');
-    await window.api.deleteSavedReport(reportId);
+    await deleteLocalReport(reportId);
     if (session.configured && cloudReports.some(report => report.id === reportId)) {
       await trashCloudReport(reportId, session.user);
     }

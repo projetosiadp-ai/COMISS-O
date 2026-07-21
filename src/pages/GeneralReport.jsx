@@ -1,14 +1,17 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
-  FileSpreadsheet, Upload, Download, RefreshCw, FolderOpen, 
+  FileSpreadsheet, Upload, Download, RefreshCw,
   CheckCircle, AlertCircle, Play, Sparkles, Building, Users
 } from 'lucide-react';
 import { formatBRL } from '../App';
+import { parseGeneralInputs, generateGeneralExcel } from '../services/reportGenerator';
 
 export default function GeneralReport({ refreshHistory, addLog }) {
   const log = (type, msg) => {
     if (addLog) addLog(type, msg);
   };
+
+  const fileInputRef = useRef(null);
 
   const [reportMonth, setReportMonth] = useState(() => {
     const now = new Date();
@@ -17,32 +20,31 @@ export default function GeneralReport({ refreshHistory, addLog }) {
 
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [corretoras, setCorretoras] = useState([]);
-  const [outputFolder, setOutputFolder] = useState('');
   const [parsing, setParsing] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState({ type: '', message: '' });
   const [dragOver, setDragOver] = useState(false);
 
-  useEffect(() => {
-    window.api?.getAppSettings?.().then(settings => {
-      if (settings?.defaultOutputFolder) setOutputFolder(settings.defaultOutputFolder);
-    }).catch(() => {});
-  }, []);
-
-  const handleSelectFiles = async () => {
-    if (window.api && window.api.selectGeneralFiles) {
-      const paths = await window.api.selectGeneralFiles();
-      if (paths && paths.length > 0) {
-        addFiles(paths);
-      }
+  const handleDropzoneClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
     }
   };
 
-  const addFiles = async (paths) => {
-    const allowed = /\.xlsx$/i;
-    const filtered = (paths || []).filter(p => allowed.test(p));
+  const handleSelectFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
+      addFiles(files);
+    }
+    if (e.target) e.target.value = '';
+  };
+
+  const addFiles = async (files) => {
+    const allowed = /\.(xlsx|xls)$/i;
+    const filtered = files.filter(f => allowed.test(f.name));
     if (filtered.length === 0) {
-      log('error', 'Nenhum arquivo .xlsx válido foi selecionado.');
+      log('error', 'Nenhum arquivo .xlsx ou .xls válido foi selecionado.');
+      setStatus({ type: 'error', message: 'Selecione planilhas nos formatos .xlsx ou .xls.' });
       return;
     }
 
@@ -53,53 +55,14 @@ export default function GeneralReport({ refreshHistory, addLog }) {
     log('info', `Iniciando leitura de ${filtered.length} planilhas...`);
 
     try {
-      const res = await window.api.parseGeneralInputs({ files: filtered });
+      const res = await parseGeneralInputs(filtered);
       if (res.errors && res.errors.length > 0) {
         res.errors.forEach(err => log('error', err));
       }
 
-      // Carrega config de corretoras para normalizar nomes no frontend
-      let corretorasConfig = {};
-      try {
-        corretorasConfig = await window.api.getCorretorasConfig?.() || {};
-      } catch (_) {}
-
-      // Normaliza o nome da corretora usando a config de aliases
-      const normalizeText = (v) => String(v || '')
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .toUpperCase()
-        .replace(/&/g, ' E ')
-        .replace(/[^A-Z0-9]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const normalizarNome = (nome) => {
-        const original = String(nome || '').trim();
-        const base = normalizeText(original);
-        if (!base || base.includes('NAO IDENTIFICADA')) return 'Corretora não identificada';
-
-        for (const [nomePrincipal, aliases] of Object.entries(corretorasConfig)) {
-          const principalNorm = normalizeText(nomePrincipal);
-          const aliasList = Array.isArray(aliases) ? aliases : [];
-
-          if (base === principalNorm || base.startsWith(principalNorm) || principalNorm.startsWith(base)) {
-            return nomePrincipal;
-          }
-          for (const alias of aliasList) {
-            const aliasNorm = normalizeText(alias);
-            if (!aliasNorm) continue;
-            if (base === aliasNorm || base.startsWith(aliasNorm) || aliasNorm.startsWith(base)) {
-              return nomePrincipal;
-            }
-          }
-        }
-        return original;
-      };
-
-      // Agrupa os blocos por corretora normalizada no frontend
       const groupedMap = {};
       for (const b of (res.blocks || [])) {
-        const cName = normalizarNome(b.corretora);
+        const cName = b.corretora;
         if (!groupedMap[cName]) {
           groupedMap[cName] = {
             corretora: cName,
@@ -148,21 +111,8 @@ export default function GeneralReport({ refreshHistory, addLog }) {
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
-    if (window.api && window.api.getDroppedFilePaths) {
-      const paths = window.api.getDroppedFilePaths(e.dataTransfer.files);
-      addFiles(paths);
-    }
-  };
-
-  const handleSelectFolder = async () => {
-    if (window.api && window.api.selectOutputFolder) {
-      const folder = await window.api.selectOutputFolder();
-      if (folder) {
-        setOutputFolder(folder);
-        window.api.saveAppSettings?.({ defaultOutputFolder: folder }).catch(() => {});
-        log('info', `Pasta de destino selecionada: ${folder}`);
-      }
-    }
+    const files = Array.from(e.dataTransfer.files || []);
+    addFiles(files);
   };
 
   const handleFieldChange = (index, field, value) => {
@@ -176,10 +126,6 @@ export default function GeneralReport({ refreshHistory, addLog }) {
   const handleGenerate = async () => {
     if (!reportMonth) {
       setStatus({ type: 'error', message: 'Mês de referência não informado.' });
-      return;
-    }
-    if (!outputFolder) {
-      setStatus({ type: 'error', message: 'Selecione a pasta de destino para salvar o Relatório Geral.' });
       return;
     }
     if (!corretoras.length) {
@@ -203,17 +149,13 @@ export default function GeneralReport({ refreshHistory, addLog }) {
         ir: Number(c.ir || 0)
       }));
 
-      const res = await window.api.generateGeneralReport({
-        reportMonth,
-        outputFolder,
-        corretorasData: payloadData
-      });
+      const res = await generateGeneralExcel(reportMonth, payloadData);
 
       setStatus({
         type: 'success',
-        message: `Relatório Geral criado com sucesso:\nArquivo: ${res.fileName}\nCaminho: ${res.outPath}`
+        message: `Relatório Geral gerado com sucesso:\nArquivo: ${res.fileName}`
       });
-      log('success', `Relatório Geral consolidado com sucesso em: ${res.outPath}`);
+      log('success', `Relatório Geral baixado com sucesso: ${res.fileName}`);
     } catch (err) {
       setStatus({ type: 'error', message: `Erro ao gerar relatório: ${err.message}` });
       log('error', `Falha ao gerar Relatório Geral: ${err.message}`);
@@ -222,13 +164,6 @@ export default function GeneralReport({ refreshHistory, addLog }) {
     }
   };
 
-  const handleOpenFile = (path) => {
-    if (window.api && window.api.openPath) {
-      window.api.openPath(path);
-    }
-  };
-
-  // Memoized total calculations for sticky footer
   const totals = useMemo(() => {
     let commission = 0;
     let net = 0;
@@ -246,22 +181,18 @@ export default function GeneralReport({ refreshHistory, addLog }) {
     return { commission, net };
   }, [corretoras]);
 
-  // Decides input border highlights mapped to HSL tokens
   const getInputBorderStyle = (value, inputType) => {
     const val = Number(value || 0);
     if (val === 0) return { borderColor: 'var(--line)' };
     
     if (inputType === 'bonus') {
-      // Diferenças, Meta, Lançamentos Futuros
       return { borderColor: val > 0 ? 'var(--green)' : 'var(--red)', borderWidth: '1.5px' };
     } else if (inputType === 'deduction') {
-      // Desc Taxa, IR
       return { borderColor: val > 0 ? 'var(--red)' : 'var(--green)', borderWidth: '1.5px' };
     }
     return { borderColor: 'var(--line)' };
   };
 
-  // Helper para renderizar os inputs numéricos de forma consistente com realce condicional
   const renderNumericInput = (index, field, value, inputType) => {
     const borderStyle = getInputBorderStyle(value, inputType);
     return (
@@ -311,31 +242,41 @@ export default function GeneralReport({ refreshHistory, addLog }) {
             <p>Selecione o mês para nomear a aba e o arquivo de saída.</p>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', flex: 1 }}>
             <div>
-              <label>Planilhas Consolidadas por Corretora (.xlsx)</label>
+              <label>Planilhas por Corretora (.xlsx ou .xls)</label>
+              
+              <input
+                type="file"
+                ref={fileInputRef}
+                multiple
+                accept=".xlsx,.xls"
+                onChange={handleSelectFiles}
+                style={{ display: 'none' }}
+              />
+
               <div
                 className={`dropzone ${dragOver ? 'dragover' : ''}`}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                onClick={handleSelectFiles}
+                onClick={handleDropzoneClick}
                 style={{ cursor: 'pointer' }}
               >
                 <div className="upload-icon"><Upload size={24} /></div>
-                <strong>Selecione ou Arraste os arquivos consolidados</strong>
-                <small>Clique para escolher</small>
+                <strong>Selecione ou Arraste os arquivos das corretoras</strong>
+                <small>Clique para escolher planilhas (.xlsx ou .xls)</small>
               </div>
             </div>
 
             {selectedFiles.length > 0 && (
               <div>
-                <strong style={{ fontSize: '13px', color: 'var(--muted)' }}>Arquivos importados:</strong>
-                <div className="file-list" style={{ marginTop: '5px' }}>
+                <strong style={{ fontSize: '13px', color: 'var(--muted)' }}>Arquivos importados ({selectedFiles.length}):</strong>
+                <div className="file-list" style={{ marginTop: '5px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                   {selectedFiles.map((f, idx) => (
-                    <div key={idx} className="file-chip" title={f} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <div key={idx} className="file-chip" title={f.name} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                       <FileSpreadsheet size={12} style={{ color: 'var(--green)' }} />
-                      {f.split(/[\\/]/).pop()}
+                      {f.name}
                     </div>
                   ))}
                 </div>
@@ -356,134 +297,114 @@ export default function GeneralReport({ refreshHistory, addLog }) {
           )}
           <div style={{ flex: 1 }}>
             {status.message}
-            {status.type === 'success' && status.message.includes('Caminho:') && (
-              <button
-                className="secondary"
-                onClick={() => handleOpenFile(status.message.split('Caminho: ')[1].trim())}
-                style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <FolderOpen size={13} /> Abrir Planilha Consolidada
-              </button>
-            )}
           </div>
         </div>
       )}
 
       {corretoras.length > 0 && (
-        <div className="panel" style={{ paddingBottom: 0, overflow: 'hidden' }}>
-          <div className="panel-head" style={{ marginBottom: '15px' }}>
+        <section className="panel" style={{ marginTop: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
             <div>
-              <h2>Revisar Corretoras e Ajustes</h2>
-              <p>Configure a classificação (PF/PJ) e insira manualmente valores de Diferenças, Meta ou outras taxas de ajuste para cada corretora.</p>
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Building size={18} style={{ color: 'var(--primary)' }} />
+                Corretoras a Consolidadar ({corretoras.length})
+              </h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--muted)' }}>
+                Ajuste os valores financeiros (Diferenças, Meta, Taxas, IR) antes de gerar a planilha final.
+              </p>
             </div>
+            <button 
+              className="primary" 
+              onClick={handleGenerate} 
+              disabled={generating}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px' }}
+            >
+              {generating ? <RefreshCw size={16} className="animate-spin" /> : <Download size={16} />}
+              Gerar e Baixar Relatório Geral (.xlsx)
+            </button>
           </div>
 
-          <div style={{ overflowX: 'auto', maxHeight: '450px', position: 'relative' }}>
-            <table className="summary-table table" style={{ width: '100%', minWidth: '980px', borderCollapse: 'collapse' }}>
+          <div className="table-responsive" style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
               <thead>
-                <tr style={{ position: 'sticky', top: 0, background: 'var(--panel)', zIndex: 2, borderBottom: '2px solid var(--line)' }}>
-                  <th style={{ padding: '12px 8px', textAlign: 'left' }}>Corretora</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'left' }}>Total Comissões</th>
-                  <th style={{ padding: '12px 8px', width: '110px', textAlign: 'left' }}>Tipo</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Diferenças (R$)</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Meta (R$)</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Desc Taxa (R$)</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>Lanç. Futuros (R$)</th>
-                  <th style={{ padding: '12px 8px', textAlign: 'right', width: '106px' }}>IR (R$)</th>
+                <tr style={{ background: 'var(--header-bg, rgba(0,0,0,0.04))', borderBottom: '2px solid var(--line)' }}>
+                  <th style={{ textAlign: 'left', padding: '10px' }}>Corretora</th>
+                  <th style={{ textAlign: 'center', padding: '10px' }}>Tipo</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Comissão Líquida</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Diferenças (+/-)</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Meta (+)</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Desc. Taxa (-)</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Lanç. Futuros (+/-)</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>IR (-)</th>
+                  <th style={{ textAlign: 'right', padding: '10px' }}>Total a Pagar</th>
                 </tr>
               </thead>
               <tbody>
-                {corretoras.map((c, idx) => (
-                  <tr key={idx} style={{ borderBottom: '1px solid var(--line)' }}>
-                    <td style={{ padding: '10px 8px', fontWeight: '700', fontSize: '13px' }}>{c.corretora}</td>
-                    <td style={{ padding: '10px 8px', fontWeight: '700', color: 'var(--text)' }}>{formatBRL(c.totalComissao)}</td>
-                    <td style={{ padding: '10px 8px' }}>
-                      <select
-                        value={c.category}
-                        onChange={(e) => handleFieldChange(idx, 'category', e.target.value)}
-                        style={{
-                          width: '100%',
-                          height: '32px',
-                          border: '1px solid var(--line)',
-                          borderRadius: '6px',
-                          padding: '0 4px',
-                          background: 'var(--panel)',
-                          color: 'var(--text)',
-                          outline: 'none',
-                          fontSize: '12px',
-                          fontWeight: '600'
-                        }}
-                      >
-                        <option value="PF">PF</option>
-                        <option value="PJ">PJ</option>
-                      </select>
-                    </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'diferencas', c.diferencas, 'bonus')}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'meta', c.meta, 'bonus')}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'descTaxa', c.descTaxa, 'deduction')}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'lancamentosFuturos', c.lancamentosFuturos, 'bonus')}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right' }}>{renderNumericInput(idx, 'ir', c.ir, 'deduction')}</td>
-                  </tr>
-                ))}
+                {corretoras.map((c, index) => {
+                  const tc = Number(c.totalComissao || 0);
+                  const dif = Number(c.diferencas || 0);
+                  const mt = Number(c.meta || 0);
+                  const tx = Number(c.descTaxa || 0);
+                  const lf = Number(c.lancamentosFuturos || 0);
+                  const irVal = Number(c.ir || 0);
+                  const net = tc + dif + mt - tx + lf - irVal;
+
+                  return (
+                    <tr key={index} style={{ borderBottom: '1px solid var(--line)' }}>
+                      <td style={{ padding: '10px', fontWeight: '600' }}>{c.corretora}</td>
+                      <td style={{ textAlign: 'center', padding: '10px' }}>
+                        <select
+                          value={c.category}
+                          onChange={(e) => handleFieldChange(index, 'category', e.target.value)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            background: 'var(--panel)',
+                            color: 'var(--text)',
+                            border: '1px solid var(--line)'
+                          }}
+                        >
+                          <option value="PF">PF</option>
+                          <option value="PJ">PJ</option>
+                        </select>
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '10px', fontWeight: '500' }}>{formatBRL(tc)}</td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>
+                        {renderNumericInput(index, 'diferencas', c.diferencas, 'bonus')}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>
+                        {renderNumericInput(index, 'meta', c.meta, 'bonus')}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>
+                        {renderNumericInput(index, 'descTaxa', c.descTaxa, 'deduction')}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>
+                        {renderNumericInput(index, 'lancamentosFuturos', c.lancamentosFuturos, 'bonus')}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '6px' }}>
+                        {renderNumericInput(index, 'ir', c.ir, 'deduction')}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '10px', fontWeight: '700', color: 'var(--primary)' }}>
+                        {formatBRL(net)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--header-bg, rgba(0,0,0,0.06))', fontWeight: 'bold' }}>
+                  <td colSpan="2" style={{ padding: '12px 10px' }}>TOTAL GERAL</td>
+                  <td style={{ textAlign: 'right', padding: '12px 10px' }}>{formatBRL(totals.commission)}</td>
+                  <td colSpan="5"></td>
+                  <td style={{ textAlign: 'right', padding: '12px 10px', fontSize: '14px', color: 'var(--primary)' }}>
+                    {formatBRL(totals.net)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
-
-          {/* Sticky Net Total Footer */}
-          <div className="table-sticky-footer" style={{
-            position: 'sticky',
-            bottom: 0,
-            background: 'var(--panel)',
-            borderTop: '2px solid var(--line)',
-            padding: '16px 20px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            boxShadow: '0 -4px 12px rgba(0,0,0,0.06)',
-            zIndex: 3,
-            fontWeight: '700',
-            fontSize: '13px',
-            marginTop: '15px'
-          }}>
-            <span className="muted" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <Sparkles size={14} className="text-amber" /> Resumo Consolidado:
-            </span>
-            <div style={{ display: 'flex', gap: '24px' }}>
-              <span>Bruto: <span style={{ color: 'var(--text)' }}>{formatBRL(totals.commission)}</span></span>
-              <span>Líquido Geral: <span style={{ color: 'var(--primary)', fontSize: '15px' }}>{formatBRL(totals.net)}</span></span>
-            </div>
-          </div>
-
-          <div className="output-row" style={{ marginTop: '22px', borderTop: '1px solid var(--line)', paddingTop: '15px', paddingBottom: '15px' }}>
-            <div className="field-grow">
-              <label>Pasta de Destino</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input
-                  type="text"
-                  placeholder="Selecione a pasta onde o Relatório Geral será salvo"
-                  value={outputFolder}
-                  readOnly
-                  onClick={handleSelectFolder}
-                  style={{ flex: 1 }}
-                />
-                <button className="secondary" onClick={handleSelectFolder} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <FolderOpen size={14} /> Escolher Pasta
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', paddingBottom: '22px' }}>
-            <button
-              className="primary large"
-              disabled={generating || parsing}
-              onClick={handleGenerate}
-              style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
-            >
-              <Play size={14} /> {generating ? 'Consolidando...' : 'Gerar Planilha Geral'}
-            </button>
-          </div>
-        </div>
+        </section>
       )}
     </div>
   );

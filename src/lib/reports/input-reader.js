@@ -1,8 +1,6 @@
-const fs = require('fs');
-const path = require('path');
-const ExcelJS = require('exceljs');
-const { decodeHtml, parseVendedorCorretora, parseBrazilCurrency, formatNumberBR } = require('../core/text.cjs');
-const { extractHtmlCommissionRecords, recordsFromRows } = require('../core/duplicate-analysis.cjs');
+import ExcelJS from 'exceljs';
+import { decodeHtml, parseVendedorCorretora, parseBrazilCurrency, formatNumberBR } from '../core/text.js';
+import { extractHtmlCommissionRecords, recordsFromRows } from '../core/duplicate-analysis.js';
 
 function getLastUsedRow(sheet) {
   let last = 1;
@@ -36,12 +34,13 @@ function getRowsFromXlsxSheet(sheet) {
   return rows;
 }
 
-async function readXlsxInput(filePath) {
+async function readXlsxInput(file) {
+  const buffer = await file.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
+  await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
-  const info = parseVendedorCorretora(sheet.getCell('A1').value, filePath);
-  return { filePath, type: 'xlsx', workbook, sheet, info };
+  const info = parseVendedorCorretora(sheet.getCell('A1').value, file.name);
+  return { filePath: file.name, type: 'xlsx', workbook, sheet, info };
 }
 
 function extractHtmlTitle(clean) {
@@ -58,10 +57,12 @@ function extractHtmlTitle(clean) {
     .find(value => value && !/^style/i.test(value)) || '';
 }
 
-function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
+function htmlToRows(html, fileName = '', shouldDeduplicate = false) {
   const clean = html.replace(/\r?\n/g, ' ');
 
-  const titulo = extractHtmlTitle(clean) || path.basename(filePath, path.extname(filePath));
+  let baseName = fileName.split(/[\\/]/).pop();
+  if (baseName.includes('.')) baseName = baseName.substring(0, baseName.lastIndexOf('.'));
+  const titulo = extractHtmlTitle(clean) || baseName || fileName;
 
   const periodoMatch = clean.match(/Per[^:<]*odo:\s*<\/b>\s*([^<]*)/i);
   const periodo = decodeHtml(periodoMatch ? periodoMatch[1] : '');
@@ -69,7 +70,7 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
   const loteMatch = clean.match(/Lote:\s*<\/b>\s*([^<]*)\s*-\s*<b[^>]*>\s*([^<]*)/i);
   const lote = loteMatch ? `${decodeHtml(loteMatch[1])} - ${decodeHtml(loteMatch[2])}` : '';
 
-  const totalMatch = clean.match(/Total de Comiss[^:]*a pagar:\s*<b[^>]*>\s*([^<]*)/i);
+  const totalMatch = clean.match(/Total de Comiss[^:]*a pagar:[\s<b\/>]*([\d.,]+)/i);
   const totalOriginal = decodeHtml(totalMatch ? totalMatch[1] : '');
 
   const rows = [];
@@ -85,10 +86,10 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
   function parseTableRows(tableHtml) {
     const result = [];
     const trRx = /<tr[\s\S]*?<\/tr>/gi;
-    const tdRx = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
     let trM;
     while ((trM = trRx.exec(tableHtml)) !== null) {
       const cells = [];
+      const tdRx = /<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi;
       let tdM;
       while ((tdM = tdRx.exec(trM[0])) !== null) {
         cells.push(decodeHtml(tdM[1]));
@@ -98,22 +99,33 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
     return result;
   }
 
-  // --- 1. Lê tabela PJ (GRD_ResultadoPJ) para coletar empresas PJ e calcular total PJ ---
+  // --- 1. Lê tabela PJ (GRD_ResultadoPJ) para coletar empresas PJ e calcular total PJ
   const pjCompanies = new Set();
   let pjTotal = 0;
   let pjAllRows = [];
+  let pjComissaoColIdx = 7;
+  let pjRecebidoColIdx = 5;
+  let pjEmpresaColIdx = 1;
+
   const pjTableMatch = clean.match(/id="GRD_ResultadoPJ"[^>]*>([\s\S]*?)<\/table>/i);
   if (pjTableMatch) {
     pjAllRows = parseTableRows(pjTableMatch[1]);
-    // Colunas PJ: [0]Código [1]Empresa [2]Parcela [3]Vencimento [4]Pagamento
-    //             [5]Recebido [6]Regra [7]Comissão [8]Vidas [9]Mensalidade
+    if (pjAllRows[0]) {
+      const comIdx = pjAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('COMISS'));
+      if (comIdx !== -1) pjComissaoColIdx = comIdx;
+      const recIdx = pjAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('RECEB'));
+      if (recIdx !== -1) pjRecebidoColIdx = recIdx;
+      const empIdx = pjAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('EMPRESA'));
+      if (empIdx !== -1) pjEmpresaColIdx = empIdx;
+    }
+
     for (let i = 1; i < pjAllRows.length; i++) {
       const row = pjAllRows[i];
       if (row.some(c => String(c || '').toUpperCase().includes('TOTAL'))) continue;
-      const empresa = String(row[1] || '').trim();
+      const empresa = String(row[pjEmpresaColIdx] || '').trim();
       if (!empresa) continue;
-      const comissao = parseBrazilCurrency(String(row[7] || ''));
-      const recebido = parseBrazilCurrency(String(row[5] || ''));
+      const comissao = parseBrazilCurrency(String(row[pjComissaoColIdx] || ''));
+      const recebido = parseBrazilCurrency(String(row[pjRecebidoColIdx] || ''));
       if (recebido !== null || comissao !== null) {
         pjCompanies.add(empresa);
         if (comissao !== null) pjTotal += comissao;
@@ -121,19 +133,60 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
     }
   }
 
-  // --- 2. Lê tabela PF (GRD_ResultadoPF), removendo empresas que já constam no PJ ---
   const pfTableMatch = clean.match(/id="GRD_ResultadoPF"[^>]*>([\s\S]*?)<\/table>/i);
 
   if (!pfTableMatch) {
-    // Fallback: sem ID específico, comportamento antigo (primeira tabela)
-    const tableMatch = clean.match(/<table[\s\S]*?<\/table>/i);
+    // Tenta GRD_Resultado (relatório de lotes/geral com todos os vendedores)
+    const grdResultadoMatch = clean.match(/id="GRD_Resultado"[^>]*>([\s\S]*?)<\/table>/i);
+    // Fallback: primeira tabela genérica
+    const tableMatch = grdResultadoMatch || clean.match(/<table[\s\S]*?<\/table>/i);
+
     if (!tableMatch) {
       rows[4] = [`Total de Comissões a pagar: ${totalOriginal}`];
       return rows;
     }
-    const allRows = parseTableRows(tableMatch[0]);
+
+    const tableHtml = grdResultadoMatch ? tableMatch[1] : tableMatch[0];
+    const allRows = parseTableRows(tableHtml);
+
+    // Soma dinâmica: encontra a coluna "Comissão" e soma
+    let fallbackTotal = 0;
+    let fallbackComissaoIdx = -1;
+    if (allRows[0]) {
+      fallbackComissaoIdx = allRows[0].findIndex(c =>
+        String(c || '').toUpperCase().includes('COMISS') &&
+        !String(c || '').toUpperCase().includes('RECEB')
+      );
+    }
+
+    // Tenta pegar o total da ÚLTIMA linha em negrito usando a coluna de Comissão
+    let boldTotal = null;
+    const lastDataRow = allRows[allRows.length - 1];
+    if (lastDataRow && fallbackComissaoIdx !== -1) {
+      const val = parseBrazilCurrency(String(lastDataRow[fallbackComissaoIdx] || ''));
+      if (val !== null && val > 0) boldTotal = val;
+    }
+
+    for (let i = 1; i < allRows.length; i++) {
+      const row = allRows[i];
+      if (row.some(c => String(c || '').toUpperCase().includes('TOTAL'))) continue;
+      if (!row.some(c => String(c || '').trim())) continue;
+      if (fallbackComissaoIdx !== -1) {
+        const val = parseBrazilCurrency(String(row[fallbackComissaoIdx] || ''));
+        if (val !== null) fallbackTotal += val;
+      } else {
+        for (let k = row.length - 1; k >= 0; k--) {
+          const val = parseBrazilCurrency(String(row[k] || ''));
+          if (val !== null) { fallbackTotal += val; break; }
+        }
+      }
+    }
+
+    // Prioridade: totalOriginal (do cabeçalho) > boldTotal (rodapé da coluna comissão) > fallbackTotal (soma coluna)
+    const finalTotal = totalOriginal || (boldTotal !== null ? formatNumberBR(boldTotal) : formatNumberBR(fallbackTotal));
+
     allRows.forEach(r => rows.push(r));
-    rows[4] = [`Total de Comissões a pagar: ${totalOriginal}`];
+    rows[4] = [`Total de Comissões a pagar: ${finalTotal}`];
     return rows;
   }
 
@@ -141,21 +194,29 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
   let pfTotal = 0;
   const pfDataRows = [];
 
-  // pfAllRows[0] = cabeçalho da tabela PF
   if (pfAllRows[0]) rows.push(pfAllRows[0]);
 
-  // Colunas PF: [0]Código [1]Responsável [2]Usuário [3]Contrato [4]CPF
-  //             [5]Empresa [6]Plano [7]Parcela [8]Vencimento [9]Pagamento
-  //             [10]Regra [11]Recebido [12]Comissão [13]Mensalidade [14]Data de Adesão
+  let pfComissaoColIdx = 12;
+  let pfEmpresaColIdx = 5;
+  let pfCodColIdx = 0;
+  if (pfAllRows[0]) {
+    const comIdx = pfAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('COMISS'));
+    if (comIdx !== -1) pfComissaoColIdx = comIdx;
+    const empIdx = pfAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('EMPRESA'));
+    if (empIdx !== -1) pfEmpresaColIdx = empIdx;
+    const codIdx = pfAllRows[0].findIndex(c => String(c || '').toUpperCase().includes('CÓDIGO') || String(c || '').toUpperCase().includes('CODIGO'));
+    if (codIdx !== -1) pfCodColIdx = codIdx;
+  }
+
   for (let i = 1; i < pfAllRows.length; i++) {
     const row = pfAllRows[i];
     if (row.some(c => String(c || '').toUpperCase().includes('TOTAL'))) continue;
-    const code = String(row[0] || '').trim();
-    if (!code) continue;
-    // Remove linhas de empresas que já constam no bloco PJ (apenas se a dedupilação for solicitada)
-    const empresa = String(row[5] || '').trim();
+    if (!row.some(c => String(c || '').trim())) continue;
+    
+    const empresa = String(row[pfEmpresaColIdx] || '').trim();
     if (shouldDeduplicate && pjCompanies.size > 0 && empresa && pjCompanies.has(empresa)) continue;
-    const comissao = parseBrazilCurrency(String(row[12] || ''));
+    
+    const comissao = parseBrazilCurrency(String(row[pfComissaoColIdx] || ''));
     if (comissao !== null) pfTotal += comissao;
     pfDataRows.push(row);
   }
@@ -201,32 +262,32 @@ function htmlToRows(html, filePath = '', shouldDeduplicate = false) {
   return rows;
 }
 
-function readHtmlInput(filePath, shouldDeduplicate = false) {
-  const html = fs.readFileSync(filePath).toString('latin1');
-  const rows = htmlToRows(html, filePath, shouldDeduplicate);
+async function readHtmlInput(file, shouldDeduplicate = false) {
+  const text = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = e => reject(e);
+    reader.readAsText(file, 'iso-8859-1');
+  });
+  const rows = htmlToRows(text, file.name, shouldDeduplicate);
   return {
-    filePath,
+    filePath: file.name,
     type: 'html-xls',
     rows,
-    info: parseVendedorCorretora(rows[0]?.[0], filePath)
+    info: parseVendedorCorretora(rows[0]?.[0], file.name)
   };
 }
 
-async function readInput(filePath, shouldDeduplicate = false) {
-  const extension = path.extname(filePath).toLowerCase();
-  const firstBytes = fs.readFileSync(filePath).slice(0, 20).toString('latin1').toLowerCase();
-  return extension === '.xlsx' || firstBytes.startsWith('pk')
-    ? readXlsxInput(filePath)
-    : readHtmlInput(filePath, shouldDeduplicate);
+async function readInput(file, shouldDeduplicate = false) {
+  const isExcel = file.name.toLowerCase().endsWith('.xlsx');
+  return isExcel ? readXlsxInput(file) : readHtmlInput(file, shouldDeduplicate);
 }
 
-async function analyzeFile(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const firstBytes = fs.readFileSync(filePath).slice(0, 20).toString('latin1').toLowerCase();
-
+async function analyzeFile(file) {
+  const isExcel = file.name.toLowerCase().endsWith('.xlsx');
   let brokerName = 'Corretora não identificada';
   try {
-    const item = await readInput(filePath, false);
+    const item = await readInput(file, false);
     if (item && item.info) {
       brokerName = item.info.corretora || brokerName;
     }
@@ -234,12 +295,17 @@ async function analyzeFile(filePath) {
     console.error('Erro ao ler corretora no analyzeFile:', err);
   }
 
-  if (ext === '.xlsx' || firstBytes.startsWith('pk')) {
-    return { filePath, fileName: path.basename(filePath), brokerName, hasDuplicates: false, duplicateCompanies: [] };
+  if (isExcel) {
+    return { filePath: file.name, fileName: file.name, brokerName, hasDuplicates: false, duplicateCompanies: [] };
   }
 
-  const html = fs.readFileSync(filePath, 'latin1');
-  const clean = html.replace(/\r?\n/g, ' ');
+  const text = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = e => reject(e);
+    reader.readAsText(file, 'iso-8859-1');
+  });
+  const clean = text.replace(/\r?\n/g, ' ');
 
   // Parse PJ table
   const pjCompanies = new Set();
@@ -284,30 +350,36 @@ async function analyzeFile(filePath) {
   }
 
   return {
-    filePath,
-    fileName: path.basename(filePath),
+    filePath: file.name,
+    fileName: file.name,
     brokerName,
     hasDuplicates: duplicateCompanies.size > 0,
     duplicateCompanies: Array.from(duplicateCompanies)
   };
 }
 
-async function readDuplicateRecords(filePath) {
-  const extension = path.extname(filePath).toLowerCase();
-  const buffer = fs.readFileSync(filePath);
-  const firstBytes = buffer.slice(0, 20).toString('latin1').toLowerCase();
-  if (extension !== '.xlsx' && !firstBytes.startsWith('pk')) {
-    return extractHtmlCommissionRecords(buffer.toString('latin1'), filePath);
+async function readDuplicateRecords(file) {
+  const isExcel = file.name.toLowerCase().endsWith('.xlsx');
+  
+  if (!isExcel) {
+    const text = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target.result);
+      reader.onerror = e => reject(e);
+      reader.readAsText(file, 'iso-8859-1');
+    });
+    return extractHtmlCommissionRecords(text, file.name);
   }
+  const buffer = await file.arrayBuffer();
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.readFile(filePath);
+  await workbook.xlsx.load(buffer);
   return workbook.worksheets.flatMap(sheet => recordsFromRows(getRowsFromXlsxSheet(sheet), {
-    filePath,
+    filePath: file.name,
     table: sheet.name
   }));
 }
 
-module.exports = {
+export {
   extractHtmlTitle,
   htmlToRows,
   readInput,

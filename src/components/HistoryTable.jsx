@@ -6,15 +6,6 @@ export default function HistoryTable({ reports, onDelete }) {
     return <div className="empty-state">Nenhum relatório salvo ainda.</div>;
   }
 
-  const handleOpenPath = async (path) => {
-    if (window.api && window.api.openPath) {
-      try {
-        await window.api.openPath(path);
-      } catch (err) {
-        alert('Erro ao abrir pasta: ' + err.message);
-      }
-    }
-  };
 
   return (
     <table className="history-table">
@@ -40,7 +31,6 @@ export default function HistoryTable({ reports, onDelete }) {
             <td>{new Date(report.createdAt).toLocaleString('pt-BR')}</td>
             <td>
               <div className="history-row-actions">
-                <button onClick={() => handleOpenPath(report.outputRoot)}>Abrir pasta</button>
                 <button className="delete" onClick={() => onDelete(report.id)}>Excluir</button>
               </div>
             </td>

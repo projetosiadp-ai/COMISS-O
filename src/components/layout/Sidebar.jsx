@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import dentalPlusLogo from '../../../assets/logo.png';
+import DentalPlusLogo from '../DentalPlusLogo';
 
 export default function Sidebar({ collapsed, onToggle, items, activePage, onNavigate, onRefresh }) {
   const navigate = item => {
@@ -14,7 +14,7 @@ export default function Sidebar({ collapsed, onToggle, items, activePage, onNavi
       <div className="sidebar-brand" style={{ position: 'relative', width: '100%' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
           {!collapsed ? (
-            <img src={dentalPlusLogo} alt="Dental Plus" style={{ width: '135px' }} />
+            <DentalPlusLogo />
           ) : (
             <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#fff', display: 'grid', placeItems: 'center', fontWeight: '900', color: '#062a60', fontSize: '15px' }}>D</div>
           )}

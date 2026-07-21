@@ -2,9 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { 
   Upload, FileSpreadsheet, FileCode, File, X, Trash2, 
   Settings, FolderOpen, Play, CheckCircle, AlertCircle, RefreshCw,
-  Users, DollarSign, Search, ShieldAlert
+  Users, DollarSign, Search, ShieldAlert, FileDown, Download
 } from 'lucide-react';
+import { saveAs } from 'file-saver';
 import { formatBRL } from '../App';
+import { generateIndividualReports } from '../services/reportGenerator';
+import { analyzeFile } from '../lib/reports/input-reader';
+import { saveReport } from '../services/historyService';
 
 function formatBytes(bytes) {
   if (bytes === undefined || bytes === null || isNaN(bytes)) return 'N/A';
@@ -27,7 +31,6 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
   });
   
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [outputFolder, setOutputFolder] = useState('');
   const [sortAlpha, setSortAlpha] = useState(true);
   const [convertNumbers, setConvertNumbers] = useState(true);
   
@@ -53,11 +56,13 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
 
   useEffect(() => {
     const analyze = async () => {
-      if (selectedFiles.length > 0 && window.api && window.api.analyzeFiles) {
+      if (selectedFiles.length > 0) {
         try {
-          const filePaths = selectedFiles.map(f => f.path);
-          const res = await window.api.analyzeFiles(filePaths);
-          setAnalysis(res || []);
+          const res = [];
+          for (const f of selectedFiles) {
+            res.push(await analyzeFile(f.file));
+          }
+          setAnalysis(res);
         } catch (err) {
           console.error("Erro ao analisar arquivos:", err);
         }
@@ -96,37 +101,30 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
     log('success', 'Duplicidades de comissão corrigidas com sucesso!');
   };
 
-  useEffect(() => {
-    window.api?.getAppSettings?.().then(settings => {
-      if (settings?.defaultOutputFolder) setOutputFolder(settings.defaultOutputFolder);
-    }).catch(() => {});
-  }, []);
 
-  useEffect(() => {
-    if (window.api && window.api.onProgress) {
-      window.api.onProgress((data) => {
-        const labels = { 
-          leitura: 'Lendo arquivos', 
-          geracao: 'Gerando relatórios', 
-          concluido: 'Concluído', 
-          processando: 'Processando' 
-        };
-        setProgress({
-          percent: Math.max(0, Math.min(100, Number(data.percent || 0))),
-          message: data.message || '',
-          phase: data.phase || 'processando',
-          title: labels[data.phase] || 'Processando'
-        });
-        if (data.message) {
-          if (data.phase === 'concluido') {
-            log('success', data.message);
-          } else {
-            log('info', data.message);
-          }
-        }
-      });
+
+  const onProgress = (current, total, message, phase) => {
+    const labels = { 
+      leitura: 'Lendo arquivos', 
+      geracao: 'Gerando relatórios', 
+      concluido: 'Concluído', 
+      processando: 'Processando' 
+    };
+    const percent = total ? Math.max(0, Math.min(100, Math.round((current / total) * 100))) : 0;
+    setProgress({
+      percent,
+      message: message || '',
+      phase: phase || 'processando',
+      title: labels[phase] || 'Processando'
+    });
+    if (message) {
+      if (phase === 'concluido') {
+        log('success', message);
+      } else {
+        log('info', message);
+      }
     }
-  }, [addLog]);
+  };
 
   // Validação e adição de arquivos
   const addFiles = (files) => {
@@ -143,7 +141,8 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
 
       if (isValidExt && isSizeValid) {
         validFiles.push({
-          path: file.path,
+          file: file,
+          path: file.name,
           name,
           size: file.size || null,
           ext
@@ -178,27 +177,14 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
     });
   };
 
-  const handleSelectFiles = async () => {
-    if (window.api && window.api.selectFiles) {
-      const paths = await window.api.selectFiles();
-      if (paths && paths.length > 0) {
-        // Como o seletor nativo só retorna paths, convertemos em objetos de arquivo
-        const files = paths.map(p => ({ path: p, size: null }));
-        addFiles(files);
-      }
+  const handleSelectFiles = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 0) {
+      addFiles(files);
     }
   };
 
-  const handleSelectFolder = async () => {
-    if (window.api && window.api.selectOutputFolder) {
-      const folder = await window.api.selectOutputFolder();
-      if (folder) {
-        setOutputFolder(folder);
-        window.api.saveAppSettings?.({ defaultOutputFolder: folder }).catch(() => {});
-        log('info', `Pasta de destino selecionada: ${folder}`);
-      }
-    }
-  };
+
 
   const handleClearFiles = () => {
     setSelectedFiles([]);
@@ -224,14 +210,7 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
     setDragOver(false);
     
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const filesArray = Array.from(e.dataTransfer.files).map(f => {
-        const path = window.api.getDroppedFilePaths([f])[0] || f.name;
-        return {
-          path,
-          name: f.name,
-          size: f.size
-        };
-      });
+      const filesArray = Array.from(e.dataTransfer.files);
       addFiles(filesArray);
     }
   };
@@ -257,11 +236,6 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
       log('error', 'Tentativa de geração sem selecionar arquivos de entrada.');
       return;
     }
-    if (!outputFolder) {
-      setStatus({ type: 'error', message: 'Escolha a pasta onde os relatórios serão salvos.' });
-      log('error', 'Tentativa de geração sem pasta de destino selecionada.');
-      return;
-    }
 
     if (uncorrectedDuplicates.length > 0) {
       setStatus({
@@ -272,8 +246,6 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
       return;
     }
 
-    const jobId = globalThis.crypto?.randomUUID?.() || `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    activeJobRef.current = jobId;
     setProcessing(true);
     setResult(null);
     setProgress({
@@ -286,38 +258,56 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
       type: 'loading',
       message: `Processando o relatório de ${monthLabel(reportMonth)}...`
     });
-    log('info', `Iniciando geração de relatórios para ${monthLabel(reportMonth)}. Destino: ${outputFolder}`);
+    log('info', `Iniciando geração de relatórios para ${monthLabel(reportMonth)}.`);
 
     try {
-      if (window.api && window.api.generateReports) {
-        // Envia apenas a lista de caminhos (paths) para o backend do Electron
-        const filePaths = selectedFiles.map(f => f.path);
-        const res = await window.api.generateReports({
-          files: filePaths,
-          outputFolder,
-          sortAlpha,
-          convertNumbers,
-          reportMonth,
-          jobId,
-          filesToDeduplicate: correctedDuplicates.map(f => f.filePath)
-        });
+      const filesArray = selectedFiles.map(f => f.file);
+      const res = await generateIndividualReports(
+        filesArray,
+        sortAlpha,
+        convertNumbers,
+        correctedDuplicates.map(f => f.filePath),
+        [],
+        onProgress
+      );
 
-        setResult(res);
-        const errorCount = res.errors?.length ? `\nArquivos com erro: ${res.errors.length}` : '';
-        setStatus({
-          type: 'success',
-          message: `Relatório de ${monthLabel(reportMonth)} gerado e salvo no histórico.\nPasta: ${res.outputRoot}${errorCount}`
-        });
+      const sellersCount = res.summary.reduce((sum, item) => sum + Number(item.vendedores || 0), 0);
+      const totalValue = res.summary.reduce((acc, item) => acc + Number(item.totalConsolidado ?? item.total ?? 0), 0);
 
-        log('success', `Processamento concluído com sucesso. ${res.totalFiles} arquivos gerados.`);
-        if (res.errors && res.errors.length > 0) {
-          log('error', `${res.errors.length} erro(s) de leitura durante o processamento.`);
-          res.errors.forEach(err => log('error', `Erro na planilha: ${err}`));
-        }
+      const savedReport = {
+        id: `${reportMonth}_${Date.now()}`,
+        month: reportMonth,
+        key: reportMonth,
+        label: monthLabel(reportMonth),
+        folderName: `Relatório_${monthLabel(reportMonth).replace(/\s+/g, '_')}`,
+        createdAt: new Date().toISOString(),
+        summary: res.summary,
+        brokers: res.summary.length,
+        sellers: sellersCount,
+        totalValue: totalValue,
+        totalGeral: totalValue,
+        inputFiles: filesArray.length,
+        totalFiles: res.summary.length,
+        errors: res.errors
+      };
 
-        refreshHistory();
-        onReportCreated?.(res.savedReport);
+      await saveReport(savedReport);
+
+      setResult({ ...res, totalFiles: res.summary.length });
+      const errorCount = res.errors?.length ? `\nArquivos com erro: ${res.errors.length}` : '';
+      setStatus({
+        type: 'success',
+        message: `Relatório de ${monthLabel(reportMonth)} gerado e salvo no histórico.${errorCount}`
+      });
+
+      log('success', `Processamento concluído com sucesso. ${res.summary.length} relatórios gerados.`);
+      if (res.errors && res.errors.length > 0) {
+        log('error', `${res.errors.length} erro(s) de leitura durante o processamento.`);
+        res.errors.forEach(err => log('error', `Erro na planilha: ${err}`));
       }
+
+      refreshHistory();
+      onReportCreated?.(savedReport);
     } catch (err) {
       setStatus({
         type: 'error',
@@ -331,18 +321,44 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
   };
 
   const handleCancel = async () => {
-    if (!activeJobRef.current || !window.api?.cancelProcessing) return;
-    const requested = await window.api.cancelProcessing(activeJobRef.current);
-    if (requested) {
-      setStatus({ type: 'loading', message: 'Cancelamento solicitado. Finalizando a etapa segura atual...' });
-      log('info', 'Cancelamento solicitado pelo usuário.');
+    window.location.reload();
+  };
+
+  const handleSaveToFolder = async () => {
+    if (!result?.generatedFiles || result.generatedFiles.length === 0) return;
+
+    if ('showDirectoryPicker' in window) {
+      try {
+        const dirHandle = await window.showDirectoryPicker();
+        let count = 0;
+        for (const fileObj of result.generatedFiles) {
+          const fileHandle = await dirHandle.getFileHandle(fileObj.fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(fileObj.blob);
+          await writable.close();
+          count++;
+        }
+        alert(`${count} arquivo(s) salvos com sucesso na pasta escolhida!`);
+        log('success', `${count} arquivo(s) salvos na pasta escolhida.`);
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          alert('Erro ao salvar na pasta: ' + err.message);
+        }
+      }
+    } else {
+      result.generatedFiles.forEach(f => saveAs(f.blob, f.fileName));
     }
+  };
+
+  const handleDownloadAll = () => {
+    if (!result?.generatedFiles || result.generatedFiles.length === 0) return;
+    result.generatedFiles.forEach(f => saveAs(f.blob, f.fileName));
   };
 
   // Cálculo das métricas de resultado, se houver
   const summary = result?.summary || [];
   const resultSellers = summary.reduce((sum, item) => sum + Number(item.vendedores || 0), 0);
-  const resultTotalValue = summary.reduce((sum, item) => sum + Number(item.totalConsolidado || 0), 0);
+  const resultTotalValue = summary.reduce((sum, item) => sum + Number(item.totalConsolidado ?? item.total ?? 0), 0);
 
   return (
     <div id="page-new-report" className="page active">
@@ -368,17 +384,19 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
         <div 
           id="reportDropzone" 
           className={`dropzone ${dragOver ? 'dragover' : ''}`}
-          onClick={handleSelectFiles}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           tabIndex="0"
           style={{ position: 'relative' }}
         >
-          <div className="upload-icon"><Upload size={24} /></div>
-          <strong>Arraste as comissões para esta área</strong>
-          <span>ou clique para selecionar os arquivos</span>
-          <small>.XLS · .XLSX · .HTML</small>
+          <label style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', height: '100%', cursor: 'pointer', margin: 0 }}>
+            <div className="upload-icon"><Upload size={24} /></div>
+            <strong>Arraste as comissões para esta área</strong>
+            <span>ou clique para selecionar os arquivos</span>
+            <small>.XLS · .XLSX · .HTML</small>
+            <input type="file" multiple accept=".xlsx,.xls,.html,.htm" style={{ display: 'none' }} onChange={handleSelectFiles} />
+          </label>
         </div>
       </section>
 
@@ -527,20 +545,6 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
       )}
 
       <section className="panel compact-panel">
-        <div className="output-row">
-          <div className="field-grow">
-            <label>Pasta para salvar</label>
-            <input 
-              id="outputFolder" 
-              placeholder="Selecione a pasta de destino" 
-              value={outputFolder} 
-              readOnly 
-            />
-          </div>
-          <button id="btnOutput" className="secondary" onClick={handleSelectFolder} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <FolderOpen size={14} /> Escolher pasta
-          </button>
-        </div>
         <div className="options-row">
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
             <input 
@@ -644,6 +648,15 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
               </div>
             </article>
           </div>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', margin: '20px 0 15px 0' }}>
+            <button className="primary" onClick={handleSaveToFolder} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FolderOpen size={16} /> Salvar planilhas individuais na pasta...
+            </button>
+            <button className="secondary" onClick={handleDownloadAll} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Download size={16} /> Baixar todas as planilhas (.xlsx)
+            </button>
+          </div>
+
           <div id="summary" className="summary-table">
             <table>
               <thead>
@@ -651,16 +664,32 @@ export default function NewReport({ refreshHistory, addLog, onReportCreated, kno
                   <th>Corretora</th>
                   <th>Quantidade de vendedores</th>
                   <th>Valor total</th>
+                  <th style={{ textAlign: 'right' }}>Download</th>
                 </tr>
               </thead>
               <tbody>
-                {summary.map((item, idx) => (
-                  <tr key={idx}>
-                    <td>{item.corretora}</td>
-                    <td>{Number(item.vendedores || 0)}</td>
-                    <td>{formatBRL(item.totalConsolidado)}</td>
-                  </tr>
-                ))}
+                {summary.map((item, idx) => {
+                  const generatedFile = result.generatedFiles?.find(f => f.corretora === item.corretora);
+                  return (
+                    <tr key={idx}>
+                      <td>{item.corretora}</td>
+                      <td>{Number(item.vendedores || 0)}</td>
+                      <td>{formatBRL(item.totalConsolidado ?? item.total ?? 0)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        {generatedFile && (
+                          <button 
+                            className="ghost" 
+                            onClick={() => saveAs(generatedFile.blob, generatedFile.fileName)}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '12px', padding: '4px 8px' }}
+                            title="Baixar planilha desta corretora"
+                          >
+                            <Download size={12} /> Excel
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

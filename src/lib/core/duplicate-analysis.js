@@ -1,10 +1,9 @@
-const path = require('path');
-const {
+import {
   decodeHtml,
   getText,
   normalizeBaseText,
   parseBrazilNumber
-} = require('./text.cjs');
+} from './text.js';
 
 const COMPARISON_FIELDS = ['parcela', 'pagamento', 'comissao'];
 
@@ -162,7 +161,7 @@ function recordsFromRows(rows, metadata = {}) {
     .filter(row => row.some(value => cleanText(value)))
     .map((row, index) => ({
       filePath: metadata.filePath || '',
-      fileName: path.basename(metadata.filePath || ''),
+      fileName: (metadata.filePath || '').split(/[\\/]/).pop(),
       table: metadata.table || '',
       rowNumber: index + 2,
       cliente: indexes.cliente >= 0 ? cleanText(row[indexes.cliente]) : '',
@@ -189,7 +188,7 @@ function extractHtmlCommissionRecords(html, filePath = '') {
   return records;
 }
 
-module.exports = {
+export {
   analyzeDuplicateRecords,
   extractHtmlCommissionRecords,
   recordsFromRows
