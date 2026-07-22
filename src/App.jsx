@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { 
+import {
   LayoutDashboard, PlusCircle, History, FileDown, Table, Settings,
   UserCog, ArchiveRestore, ScrollText, LineChart
 } from 'lucide-react';
+import { doc, onSnapshot } from 'firebase/firestore';
+import { db, firebaseConfigured } from './services/firebaseClient';
+import MaintenanceScreen from './components/MaintenanceScreen';
 import Dashboard from './pages/Dashboard';
 import NewReport from './pages/NewReport';
 import SavedReports from './pages/SavedReports';
@@ -36,6 +39,7 @@ export function escapeHtml(value) {
 
 export default function App() {
   const session = useAuth();
+  const [maintenanceOn, setMaintenanceOn] = useState(false);
   const [activePage, setActivePage] = useState('dashboard');
   const [localReports, setLocalReports] = useState([]);
   const [cloudReports, setCloudReports] = useState([]);
@@ -102,6 +106,16 @@ export default function App() {
   useEffect(() => {
     refreshHistory();
   }, [refreshHistory]);
+
+  // Checa o modo manutenção mesmo antes do login, pra qualquer visitante ver a tela.
+  useEffect(() => {
+    if (!firebaseConfigured || !db) return undefined;
+    return onSnapshot(
+      doc(db, 'public_status', 'maintenance'),
+      snapshot => setMaintenanceOn(Boolean(snapshot.data()?.enabled)),
+      () => setMaintenanceOn(false)
+    );
+  }, []);
 
   useEffect(() => {
     if (!session.configured || !session.user || session.profile?.status !== 'approved') {
@@ -173,6 +187,10 @@ export default function App() {
       setTimeout(() => setCopyFeedback(false), 1500);
     });
   }, [logs]);
+
+  if (maintenanceOn) {
+    return <MaintenanceScreen />;
+  }
 
   if (session.loading || (session.configured && (!session.user || session.profile?.status !== 'approved'))) {
     return <AuthScreen />;

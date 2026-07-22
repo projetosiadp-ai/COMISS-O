@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "node \"%INIT_CWD%\\scripts\\run-tests.cjs\"",
     "test:ui": "node \"%INIT_CWD%\\scripts\\run-tests.cjs\"",
-    "test:all": "npm test && npm run test:ui"
+    "test:all": "npm test && npm run test:ui",
+    "maintenance:on": "node scripts/toggle-maintenance.mjs on",
+    "maintenance:off": "node scripts/toggle-maintenance.mjs off"
   },
   "dependencies": {
     "@fontsource/inter": "^5.0.0",

@@ -91,6 +91,13 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Lido por qualquer visitante (mesmo deslogado) para exibir a tela de
+    // manutenção antes do login; só um admin pode ligar/desligar.
+    match /public_status/maintenance {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
