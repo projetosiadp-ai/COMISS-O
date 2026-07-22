@@ -1,13 +1,15 @@
 # Contabilizador de Comissões Dental Plus
 
-Aplicativo desktop (Windows) para processar planilhas de comissões da Dental Plus,
-gerar relatórios em Excel/PDF e manter um histórico compartilhado. O processamento
-de dados sensíveis é **local**; a nuvem recebe apenas metadados operacionais.
+Aplicação **web** (SPA) para processar planilhas de comissões da Dental Plus,
+gerar relatórios em Excel/PDF e manter um histórico compartilhado entre a equipe.
+O processamento de dados sensíveis é feito **no navegador do usuário**; a nuvem
+(Firebase) recebe apenas metadados operacionais.
 
 > **Privacidade:** planilhas, CPF, cliente, contrato e valores individuais são
-> processados apenas no computador. O Firestore recebe somente contas, permissões,
-> auditoria, totais agregados, versões e impressões SHA-256. Sem um arquivo `.env`
-> configurado, o programa funciona em **Modo local** e não sincroniza nada.
+> processados apenas localmente no navegador. O Firestore recebe somente contas,
+> permissões, auditoria, totais agregados, versões e impressões SHA-256.
+
+Acesse a versão em produção em **https://comissoesdp.web.app**.
 
 ## Recursos
 
@@ -17,15 +19,21 @@ de dados sensíveis é **local**; a nuvem recebe apenas metadados operacionais.
 - Relatórios existentes **nunca são sobrescritos**: novas execuções recebem versões
   `_v2`, `_v3` etc.
 - Histórico compartilhado com **perfis de acesso** (Administrador e Operador) e
-  aprovação de novas contas.
-- **Lixeira** com retenção de 30 dias (os arquivos Excel/PDF não são apagados).
+  aprovação de novas contas via Firebase Auth.
+- **Lixeira** com retenção de 30 dias.
 - Auditoria de ações visível para administradores.
-- Executáveis **portáteis** para Windows x64 e x86 (ia32).
+- Dashboard analítico com gráficos comparativos mensais.
+
+## Stack
+
+- **React 18** + **Vite** (SPA, sem backend próprio).
+- **Firebase**: Auth (e-mail/senha), Firestore (Native, região `southamerica-east1`)
+  e Hosting.
+- Geração de arquivos no cliente: **ExcelJS**, **PDFKit**, **JSZip**, **file-saver**.
 
 ## Requisitos
 
 - [Node.js](https://nodejs.org/) 18 ou superior (inclui o `npm`).
-- Windows 10/11 (x64 ou x86) para gerar e executar os portáteis.
 
 ## Instalação
 
@@ -35,7 +43,7 @@ npm ci
 
 ## Desenvolvimento
 
-Inicia o Vite e o Electron em modo de desenvolvimento com recarga:
+Inicia o servidor de desenvolvimento do Vite com recarga automática:
 
 ```bash
 npm run dev
@@ -43,51 +51,46 @@ npm run dev
 
 ## Testes
 
-Executa a suíte completa (`node:test`) — regras de comissão, contratos IPC,
-segurança e estrutura:
+Executa a suíte completa (`node:test`) — regras de comissão, segurança e estrutura:
 
 ```bash
 npm test
 ```
 
-## Compilação (executáveis portáteis)
+## Build e deploy
 
-Gera os portáteis x64 e ia32 na pasta `release/`:
+Gera os arquivos estáticos de produção em `dist/`:
 
 ```bash
-npm run build:app
+npm run build
 ```
 
-No Windows também é possível usar os atalhos:
+Deploy para o Firebase Hosting (requer login prévio via `firebase login`):
 
-- `Compilar.bat` — instala dependências (`npm ci`) e compila os portáteis.
-- `Iniciar.bat` / `ABRIR PROGRAMA.bat` — abre o portátil já compilado na pasta `release/`.
+```bash
+npx firebase-tools deploy --only hosting --project comissoesdp
+```
 
-## Configuração do Firebase (opcional)
+## Configuração do Firebase
 
-A sincronização de contas e metadados é opcional. Para ativá-la, copie
-`.env.example` para `.env` e preencha as chaves públicas do seu aplicativo Web
-do Firebase. O passo a passo completo está em
+A aplicação depende do Firebase para autenticação e sincronização de dados.
+Copie `.env.example` para `.env` e preencha as chaves públicas do seu aplicativo
+Web do Firebase. O passo a passo completo está em
 [`docs/CONFIGURACAO_FIREBASE.md`](docs/CONFIGURACAO_FIREBASE.md).
 
 ## Estrutura do projeto
 
 ```
-config/              Configuração padrão embarcada no executável
 src/
-  main/              Processo principal do Electron
-    app/             Criação da janela
-    config/          Preferências locais e corretoras
-    core/            Regras estáveis, validação, histórico e segurança
-    ipc/             Registro dos canais expostos à interface
-    reports/         Leitura e formatação de entradas/saídas
-  components/layout/ Estrutura visual compartilhada
-  pages/             Telas e fluxos de trabalho
-  services/          Comunicação com os serviços de sincronização
-  styles/            Estilos globais da interface
-tests/               Regressões, contratos IPC, segurança e estrutura
-scripts/             Validação e empacotamento
-release/             Executáveis portáteis gerados (não versionado)
+  App.jsx            Composição principal e roteamento das telas
+  auth/               Autenticação e controle de sessão
+  components/         Componentes de UI reutilizáveis (layout, gráficos etc.)
+  pages/              Telas e fluxos de trabalho (Dashboard, Relatórios, Auditoria...)
+  services/           Comunicação com Firebase e geração de relatórios (Excel/PDF)
+  lib/                Utilitários compartilhados
+  styles/             Estilos globais da interface
+tests/                Regressões e validações
+scripts/              Scripts de validação e apoio
 ```
 
 Detalhes de arquitetura e limites de cada módulo estão em
@@ -97,8 +100,7 @@ Detalhes de arquitetura e limites de cada módulo estão em
 
 Alterações nas fórmulas de comissão, na identificação de totais ou na
 consolidação exigem solicitação específica e novos testes de regressão.
-Refatorações devem preservar os resultados demonstrados por
-`tests/baseline/current-behavior.test.cjs`. Rode `npm test` antes de compilar.
+Rode `npm test` antes de publicar.
 
 ## Licença
 
