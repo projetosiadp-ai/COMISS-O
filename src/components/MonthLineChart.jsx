@@ -34,7 +34,7 @@ export default function MonthLineChart({ reports }) {
   const H = 280;
   const padL = 80;
   const padR = 30;
-  const padT = 30;
+  const padT = 44;
   const padB = 50;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
@@ -80,7 +80,7 @@ export default function MonthLineChart({ reports }) {
             position: 'absolute',
             left: tooltip.x,
             top: tooltip.y,
-            transform: 'translate(-50%, -110%)',
+            transform: 'translate(-50%, -100%)',
             background: 'linear-gradient(135deg, #1a1f3c 0%, #0f1629 100%)',
             border: '1px solid rgba(99,160,255,0.35)',
             borderRadius: 10,
@@ -93,6 +93,19 @@ export default function MonthLineChart({ reports }) {
         >
           <div style={{ fontSize: 11, color: '#8ba3d4', marginBottom: 3 }}>{tooltip.label}</div>
           <div style={{ fontSize: 15, fontWeight: 700, color: '#63a0ff' }}>{formatBRL(tooltip.value)}</div>
+          <div
+            style={{
+              position: 'absolute',
+              left: '50%',
+              bottom: -6,
+              width: 10,
+              height: 10,
+              transform: 'translateX(-50%) rotate(45deg)',
+              background: '#0f1629',
+              borderRight: '1px solid rgba(99,160,255,0.35)',
+              borderBottom: '1px solid rgba(99,160,255,0.35)',
+            }}
+          />
         </div>
       )}
 
@@ -213,9 +226,19 @@ export default function MonthLineChart({ reports }) {
                     if (!svgEl) return;
                     const rect = svgEl.getBoundingClientRect();
                     const svgScale = rect.width / W;
+                    // Mantém o balão sempre visível: nunca deixa a borda de
+                    // cima subir pra fora do container (o próprio balão tem
+                    // ~54px de altura com a setinha), e não deixa encostar
+                    // nas laterais quando a barra está perto da borda.
+                    const TOOLTIP_H = 54;
+                    const TOOLTIP_HALF_W = 60;
+                    const rawTop = (y - 10) * svgScale;
+                    const safeTop = Math.max(rawTop, TOOLTIP_H);
+                    const rawLeft = bx(i) * svgScale;
+                    const safeLeft = Math.min(Math.max(rawLeft, TOOLTIP_HALF_W), rect.width - TOOLTIP_HALF_W);
                     setTooltip({
-                      x: bx(i) * svgScale,
-                      y: (y - 4) * svgScale,
+                      x: safeLeft,
+                      y: safeTop,
                       label: d.label,
                       value: d.value,
                     });
